@@ -1,8 +1,7 @@
 import axios from 'axios'
 
-// Create axios instance with base configuration
 const api = axios.create({
-  baseURL: 'http://localhost:8080', // Your Go server URL
+  baseURL: 'http://localhost:8080', 
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',

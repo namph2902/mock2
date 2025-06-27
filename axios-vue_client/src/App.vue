@@ -1,13 +1,14 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import HelloWorld from './components/HelloWorld.vue'
-import ThemeShowcase from './components/ThemeShowcase.vue'
+import { ref, onMounted, computed } from 'vue'
 import { userAPI, checkServerHealth } from './services/api.js'
 
 // UI State
-const activeTab = ref('home')
-const showNotifications = ref(false)
-const notifications = ref([])
+const showDeleteModal = ref(false)
+const userToDelete = ref(null)
+const showEditModal = ref(false)
+const formHasChanges = ref(false)
+const originalFormData = ref({})
+const sortConfig = ref({ field: 'id', direction: 'asc' })
 
 // Reactive data
 const users = ref([])
@@ -19,6 +20,87 @@ const formData = ref({
   age: ''
 })
 const editingUser = ref(null)
+const formErrors = ref({})
+
+// Computed properties
+const isFormValid = computed(() => {
+  return formData.value.name && formData.value.email && formData.value.age && Object.keys(formErrors.value).length === 0
+})
+
+const hasUnsavedChanges = computed(() => {
+  if (!editingUser.value) return false
+  return (
+    formData.value.name !== originalFormData.value.name ||
+    formData.value.email !== originalFormData.value.email ||
+    formData.value.age !== originalFormData.value.age
+  )
+})
+
+const sortedUsers = computed(() => {
+  const sorted = [...users.value].sort((a, b) => {
+    const { field, direction } = sortConfig.value
+    let aVal = a[field]
+    let bVal = b[field]
+    
+    // Handle different data types
+    if (typeof aVal === 'string') {
+      aVal = aVal.toLowerCase()
+      bVal = bVal.toLowerCase()
+    }
+    
+    if (aVal < bVal) return direction === 'asc' ? -1 : 1
+    if (aVal > bVal) return direction === 'asc' ? 1 : -1
+    return 0
+  })
+  
+  return sorted
+})
+
+// Sort functionality
+const sortBy = (field) => {
+  if (sortConfig.value.field === field) {
+    sortConfig.value.direction = sortConfig.value.direction === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortConfig.value.field = field
+    sortConfig.value.direction = 'asc'
+  }
+}
+
+// Watch for form changes
+const checkFormChanges = () => {
+  formHasChanges.value = hasUnsavedChanges.value
+}
+const validateField = (field, value) => {
+  const errors = { ...formErrors.value }
+  
+  switch (field) {
+    case 'name':
+      if (!value || value.trim().length < 2) {
+        errors.name = 'Name must be at least 2 characters long'
+      } else {
+        delete errors.name
+      }
+      break
+    case 'email':
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!value || !emailRegex.test(value)) {
+        errors.email = 'Please enter a valid email address'
+      } else {
+        delete errors.email
+      }
+      break
+    case 'age':
+      const ageNum = parseInt(value)
+      if (!value || ageNum < 1 || ageNum > 120) {
+        errors.age = 'Age must be between 1 and 120'
+      } else {
+        delete errors.age
+      }
+      break
+  }
+  
+  formErrors.value = errors
+}
 
 // Check server connection and fetch users
 const fetchUsers = async () => {
@@ -31,7 +113,6 @@ const fetchUsers = async () => {
       users.value = userData || []
     } else {
       // Fallback to mock data when server is not running
-      console.warn('Server not available, using mock data')
       users.value = [
         { id: 1, name: 'John Doe', email: 'john@example.com', age: 28 },
         { id: 2, name: 'Jane Smith', email: 'jane@example.com', age: 32 },
@@ -40,6 +121,7 @@ const fetchUsers = async () => {
     }
   } catch (error) {
     console.error('Error fetching users:', error)
+    console.log('Failed to load users. Using demo data.')
     // Fallback to mock data on error
     users.value = [
       { id: 1, name: 'John Doe', email: 'john@example.com', age: 28 },
@@ -52,16 +134,16 @@ const fetchUsers = async () => {
 }
 
 const createUser = async () => {
-  if (!formData.value.name || !formData.value.email || !formData.value.age) {
-    alert('Please fill in all fields')
+  if (!isFormValid.value) {
+    console.log('Please fix the form errors before submitting')
     return
   }
   
   loading.value = true
   try {
     const userData = {
-      name: formData.value.name,
-      email: formData.value.email,
+      name: formData.value.name.trim(),
+      email: formData.value.email.trim().toLowerCase(),
       age: parseInt(formData.value.age)
     }
     
@@ -77,22 +159,29 @@ const createUser = async () => {
       users.value.push(newUser)
     }
     
-    resetForm()
-    showNotification('User created successfully!', 'success')
+    // Clear the add form after successful creation
+    formData.value = { name: '', email: '', age: '' }
+    formErrors.value = {}
+    console.log('User created successfully!')
   } catch (error) {
     console.error('Error creating user:', error)
-    showNotification('Error creating user. Please try again.', 'error')
+    console.log('Failed to create user. Please try again.')
   } finally {
     loading.value = false
   }
 }
 
 const updateUser = async () => {
+  if (!isFormValid.value) {
+    console.log('Please fix the form errors before submitting')
+    return
+  }
+  
   loading.value = true
   try {
     const userData = {
-      name: formData.value.name,
-      email: formData.value.email,
+      name: formData.value.name.trim(),
+      email: formData.value.email.trim().toLowerCase(),
       age: parseInt(formData.value.age)
     }
     
@@ -110,76 +199,119 @@ const updateUser = async () => {
     }
     
     resetForm()
-    showNotification('User updated successfully!', 'success')
+    console.log('User updated successfully!')
   } catch (error) {
     console.error('Error updating user:', error)
-    showNotification('Error updating user. Please try again.', 'error')
+    console.log('Failed to update user. Please try again.')
   } finally {
     loading.value = false
   }
 }
 
-const deleteUser = async (id) => {
-  if (!confirm('Are you sure you want to delete this user?')) return
+const confirmDeleteUser = (user) => {
+  userToDelete.value = user
+  showDeleteModal.value = true
+}
+
+const deleteUser = async () => {
+  if (!userToDelete.value) return
   
   loading.value = true
   try {
     if (serverConnected.value) {
-      await userAPI.deleteUser(id)
+      await userAPI.deleteUser(userToDelete.value.id)
     }
     
-    users.value = users.value.filter(user => user.id !== id)
-    showNotification('User deleted successfully!', 'success')
+    users.value = users.value.filter(user => user.id !== userToDelete.value.id)
+    console.log('User deleted successfully!')
   } catch (error) {
     console.error('Error deleting user:', error)
-    showNotification('Error deleting user. Please try again.', 'error')
+    console.log('Failed to delete user. Please try again.')
   } finally {
     loading.value = false
+    showDeleteModal.value = false
+    userToDelete.value = null
   }
 }
 
 const editUser = (user) => {
+  // Check for unsaved changes before switching users
+  if (editingUser.value && hasUnsavedChanges.value) {
+    if (!confirm('You have unsaved changes. Are you sure you want to edit a different user?')) {
+      return
+    }
+  }
+  
   editingUser.value = user
   formData.value = {
     name: user.name,
     email: user.email,
     age: user.age.toString()
   }
+  
+  // Store original data for comparison
+  originalFormData.value = {
+    name: user.name,
+    email: user.email,
+    age: user.age.toString()
+  }
+  
+  formErrors.value = {}
+  formHasChanges.value = false
+  showEditModal.value = true
+  
+  console.log(`Editing user: ${user.name}`)
 }
 
 const resetForm = () => {
+  // Check for unsaved changes
+  if (editingUser.value && hasUnsavedChanges.value) {
+    if (!confirm('You have unsaved changes. Are you sure you want to cancel?')) {
+      return
+    }
+  }
+  
   formData.value = { name: '', email: '', age: '' }
   editingUser.value = null
+  formErrors.value = {}
+  originalFormData.value = {}
+  formHasChanges.value = false
+  showEditModal.value = false
+  
+  console.log('Form reset')
 }
 
 const handleSubmit = () => {
-  if (editingUser.value) {
-    updateUser()
-  } else {
+  // Only handle creation for the main form, editing is handled separately
+  if (!editingUser.value) {
     createUser()
-  }
-}
-
-// Notification system
-const showNotification = (message, type = 'info') => {
-  const id = Date.now()
-  notifications.value.push({ id, message, type })
-  
-  // Auto remove after 5 seconds
-  setTimeout(() => {
-    removeNotification(id)
-  }, 5000)
-}
-
-const removeNotification = (id) => {
-  const index = notifications.value.findIndex(n => n.id === id)
-  if (index > -1) {
-    notifications.value.splice(index, 1)
   }
 }
 
 onMounted(() => {
   fetchUsers()
+  
+  // Add keyboard shortcuts
+  const handleKeyPress = (e) => {
+    // Escape key to cancel editing
+    if (e.key === 'Escape' && editingUser.value) {
+      resetForm()
+    }
+    // Ctrl/Cmd + S to save
+    if ((e.ctrlKey || e.metaKey) && e.key === 's' && editingUser.value) {
+      e.preventDefault()
+      if (isFormValid.value) {
+        handleSubmit()
+      }
+    }
+  }
+  
+  document.addEventListener('keydown', handleKeyPress)
+  
+  // Cleanup on unmount
+  return () => {
+    document.removeEventListener('keydown', handleKeyPress)
+  }
 })
 </script>
 
@@ -189,162 +321,91 @@ onMounted(() => {
     <nav class="navbar">
       <div class="container">
         <div class="navbar-content">
-          <div class="navbar-brand">Vue Dashboard</div>
-          <ul class="navbar-nav">
-            <li><a href="#home">Home</a></li>
-            <li><a href="#users">Users</a></li>
-            <li><a href="#about">About</a></li>
-          </ul>
-          <div class="connection-status">
-            <span v-if="serverConnected" class="status-indicator connected">
-              🟢 Server Connected
-            </span>
-            <span v-else class="status-indicator disconnected">
-              🔴 Server Disconnected
-            </span>
-            <button @click="fetchUsers" class="test-connection-btn" :disabled="loading">
-              {{ loading ? '⟳' : '🔄' }} Test Connection
-            </button>
+          <div class="navbar-brand">Vue User Manager</div>
+          <div class="flex items-center gap-lg">
+            <div :class="['connection-status', serverConnected ? 'connected' : 'disconnected']">
+              {{ serverConnected ? 'Server Connected' : 'Demo Mode' }}
+            </div>
           </div>
         </div>
       </div>
     </nav>
 
-    <!-- Hero Section -->
-    <HelloWorld msg="Modern Vue.js Dashboard" />
-
-    <!-- Features Section -->
-    <section class="features">
-      <div class="container">
-        <div class="text-center">
-          <h2 class="text-3xl font-bold mb-4">Powerful Features</h2>
-          <p class="text-secondary max-w-2xl mx-auto">
-            Built with modern technologies and best practices for optimal performance and user experience.
-          </p>
-        </div>
-        
-        <div class="features-grid">
-          <div class="feature-card slide-up">
-            <div class="feature-icon">⚡</div>
-            <h3 class="feature-title">Lightning Fast</h3>
-            <p class="feature-description">
-              Optimized performance with Vue 3 Composition API and efficient state management.
-            </p>
-          </div>
-          
-          <div class="feature-card slide-up" style="animation-delay: 0.1s">
-            <div class="feature-icon">🎨</div>
-            <h3 class="feature-title">Beautiful Design</h3>
-            <p class="feature-description">
-              Modern, responsive design with carefully crafted components and smooth animations.
-            </p>
-          </div>
-          
-          <div class="feature-card slide-up" style="animation-delay: 0.2s">
-            <div class="feature-icon">🔧</div>
-            <h3 class="feature-title">Easy to Use</h3>
-            <p class="feature-description">
-              Intuitive interface with comprehensive documentation and developer-friendly APIs.
-            </p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Stats Section -->
-    <section class="stats">
-      <div class="container">
-        <div class="stats-grid">
-          <div class="stat-item">
-            <span class="stat-number">{{ users.length }}</span>
-            <span class="stat-label">Total Users</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-number">100%</span>
-            <span class="stat-label">Uptime</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-number">50ms</span>
-            <span class="stat-label">Response Time</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-number">24/7</span>
-            <span class="stat-label">Support</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <!-- User Management Section -->
     <section class="user-management" id="users">
       <div class="container">
         <div class="text-center mb-8">
-          <h2 class="text-3xl font-bold mb-4">User Management</h2>
+          <h1 class="text-4xl font-bold mb-4">User Management</h1>
           <p class="text-secondary">
-            Add, edit, and manage users with our intuitive interface.
+            Manage your users with our intuitive interface. {{ serverConnected ? 'Connected to live database.' : 'Using demo data.' }}
           </p>
         </div>
 
-        <!-- User Form -->
+        <!-- User Form - Add Only -->
         <div class="user-form">
-          <h3 class="text-xl font-semibold mb-6">
-            {{ editingUser ? 'Edit User' : 'Add New User' }}
-          </h3>
+          <div class="form-header">
+            <h2 class="text-xl font-semibold mb-2">Add New User</h2>
+          </div>
           
           <form @submit.prevent="handleSubmit" class="grid grid-cols-1 md:grid-cols-3 gap-lg">
             <div class="form-group">
-              <label class="form-label">Name</label>
+              <label class="form-label">Full Name *</label>
               <input 
                 v-model="formData.name"
+                @blur="validateField('name', formData.name); checkFormChanges()"
+                @input="validateField('name', formData.name); checkFormChanges()"
                 type="text" 
-                class="form-input" 
+                :class="['form-input', formErrors.name ? 'error' : (formData.name && !formErrors.name ? 'success' : '')]"
                 placeholder="Enter full name"
                 required
               >
+              <div v-if="formErrors.name" class="form-error">{{ formErrors.name }}</div>
             </div>
             
             <div class="form-group">
-              <label class="form-label">Email</label>
+              <label class="form-label">Email Address *</label>
               <input 
                 v-model="formData.email"
+                @blur="validateField('email', formData.email); checkFormChanges()"
+                @input="validateField('email', formData.email); checkFormChanges()"
                 type="email" 
-                class="form-input" 
+                :class="['form-input', formErrors.email ? 'error' : (formData.email && !formErrors.email ? 'success' : '')]"
                 placeholder="Enter email address"
                 required
               >
+              <div v-if="formErrors.email" class="form-error">{{ formErrors.email }}</div>
             </div>
             
             <div class="form-group">
-              <label class="form-label">Age</label>
+              <label class="form-label">Age *</label>
               <input 
                 v-model="formData.age"
+                @blur="validateField('age', formData.age); checkFormChanges()"
+                @input="validateField('age', formData.age); checkFormChanges()"
                 type="number" 
-                class="form-input" 
+                :class="['form-input', formErrors.age ? 'error' : (formData.age && !formErrors.age ? 'success' : '')]"
                 placeholder="Enter age"
                 min="1"
                 max="120"
                 required
               >
+              <div v-if="formErrors.age" class="form-error">{{ formErrors.age }}</div>
             </div>
             
-            <div class="flex gap-md col-span-full">
-              <button 
-                type="submit" 
-                class="btn btn-primary"
-                :disabled="loading"
-              >
-                <div v-if="loading" class="loading"></div>
-                {{ editingUser ? 'Update User' : 'Add User' }}
-              </button>
-              
-              <button 
-                v-if="editingUser"
-                type="button" 
-                class="btn btn-secondary"
-                @click="resetForm"
-              >
-                Cancel
-              </button>
+            <div class="form-actions col-span-full">
+              <div class="flex gap-md">
+                <button 
+                  type="submit" 
+                  class="btn btn-primary"
+                  :disabled="loading || !isFormValid || editingUser"
+                >
+                  <div v-if="loading" class="loading"></div>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14m-7-7h14"/>
+                  </svg>
+                  Add User
+                </button>
+              </div>
             </div>
           </form>
         </div>
@@ -352,44 +413,73 @@ onMounted(() => {
         <!-- Users Table -->
         <div class="user-table">
           <div class="card-header">
-            <h3 class="text-lg font-semibold">All Users</h3>
+            <h3 class="text-lg font-semibold">All Users ({{ users.length }})</h3>
           </div>
           
-          <div class="overflow-x-auto">
+          <div v-if="users.length === 0 && !loading" class="empty-state">
+            <div class="empty-state-icon">👥</div>
+            <h3 class="empty-state-title">No users found</h3>
+            <p class="empty-state-description">
+              Get started by adding your first user above.
+            </p>
+          </div>
+          
+          <div v-else-if="loading && users.length === 0" class="empty-state">
+            <div class="loading"></div>
+            <p class="text-muted mt-2">Loading users...</p>
+          </div>
+          
+          <div v-else class="overflow-x-auto">
             <table class="table">
               <thead>
                 <tr>
-                  <th>ID</th>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Age</th>
+                  <th @click="sortBy('id')" class="sortable-header">
+                    <div class="header-content">
+                      <span>ID</span>
+                      <svg v-if="sortConfig.field === 'id'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="sortConfig.direction === 'desc' ? 'rotate-180' : ''">
+                        <path d="M7 14l5-5 5 5"/>
+                      </svg>
+                    </div>
+                  </th>
+                  <th @click="sortBy('name')" class="sortable-header">
+                    <div class="header-content">
+                      <span>Name</span>
+                      <svg v-if="sortConfig.field === 'name'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="sortConfig.direction === 'desc' ? 'rotate-180' : ''">
+                        <path d="M7 14l5-5 5 5"/>
+                      </svg>
+                    </div>
+                  </th>
+                  <th @click="sortBy('email')" class="sortable-header">
+                    <div class="header-content">
+                      <span>Email</span>
+                      <svg v-if="sortConfig.field === 'email'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="sortConfig.direction === 'desc' ? 'rotate-180' : ''">
+                        <path d="M7 14l5-5 5 5"/>
+                      </svg>
+                    </div>
+                  </th>
+                  <th @click="sortBy('age')" class="sortable-header">
+                    <div class="header-content">
+                      <span>Age</span>
+                      <svg v-if="sortConfig.field === 'age'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="sortConfig.direction === 'desc' ? 'rotate-180' : ''">
+                        <path d="M7 14l5-5 5 5"/>
+                      </svg>
+                    </div>
+                  </th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="loading && users.length === 0">
-                  <td colspan="5" class="text-center py-8">
-                    <div class="loading mx-auto"></div>
-                    <p class="text-muted mt-2">Loading users...</p>
-                  </td>
-                </tr>
-                
-                <tr v-else-if="users.length === 0">
-                  <td colspan="5" class="text-center py-8">
-                    <p class="text-muted">No users found. Add your first user above!</p>
-                  </td>
-                </tr>
-                
-                <tr v-else v-for="user in users" :key="user.id">
-                  <td class="font-medium">{{ user.id }}</td>
+                <tr v-for="user in sortedUsers" :key="user.id">
+                  <td class="font-medium">#{{ user.id }}</td>
                   <td>{{ user.name }}</td>
                   <td>{{ user.email }}</td>
-                  <td>{{ user.age }}</td>
+                  <td>{{ user.age }} years</td>
                   <td>
                     <div class="flex gap-sm">
                       <button 
                         @click="editUser(user)"
                         class="btn btn-ghost text-primary-600 hover:text-primary-700"
+                        title="Edit user"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -399,8 +489,9 @@ onMounted(() => {
                       </button>
                       
                       <button 
-                        @click="deleteUser(user.id)"
+                        @click="confirmDeleteUser(user)"
                         class="btn btn-ghost text-red-600 hover:text-red-700"
+                        title="Delete user"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <polyline points="3,6 5,6 21,6"/>
@@ -418,39 +509,125 @@ onMounted(() => {
       </div>
     </section>
 
-    <!-- Footer -->
-    <footer class="footer">
-      <div class="container">
-        <div class="footer-content">
-          <p>&copy; 2025 Vue Dashboard. Built with ❤️ using Vue.js and modern design principles.</p>
-          <div v-if="!serverConnected" class="mt-2">
-            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">
-              ⚠️ Using mock data - Go server not connected
-            </span>
+    <!-- Edit User Modal -->
+    <div v-if="showEditModal" class="modal-overlay" @click="showEditModal = false">
+      <div class="modal edit-modal" @click.stop>
+        <div class="modal-header">
+          <h3 class="modal-title">Edit User: {{ editingUser?.name }}</h3>
+          <div v-if="hasUnsavedChanges" class="unsaved-changes-indicator">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v6l4 2"/>
+            </svg>
+            Unsaved changes
           </div>
         </div>
-      </div>
-    </footer>
-
-    <!-- Notifications -->
-    <div class="fixed top-4 right-4 z-50 space-y-2">
-      <div 
-        v-for="notification in notifications" 
-        :key="notification.id"
-        :class="[
-          'toast',
-          `toast-${notification.type}`,
-          'cursor-pointer'
-        ]"
-        @click="removeNotification(notification.id)"
-      >
-        <div class="flex items-center justify-between">
-          <span>{{ notification.message }}</span>
-          <button class="ml-2 text-gray-400 hover:text-gray-600">
+        
+        <div class="modal-content">
+          <form @submit.prevent="updateUser" class="edit-form">
+            <div class="form-group">
+              <label class="form-label">Full Name *</label>
+              <input 
+                v-model="formData.name"
+                @blur="validateField('name', formData.name); checkFormChanges()"
+                @input="validateField('name', formData.name); checkFormChanges()"
+                type="text" 
+                :class="['form-input', formErrors.name ? 'error' : (formData.name && !formErrors.name ? 'success' : '')]"
+                placeholder="Enter full name"
+                required
+              >
+              <div v-if="formErrors.name" class="form-error">{{ formErrors.name }}</div>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Email Address *</label>
+              <input 
+                v-model="formData.email"
+                @blur="validateField('email', formData.email); checkFormChanges()"
+                @input="validateField('email', formData.email); checkFormChanges()"
+                type="email" 
+                :class="['form-input', formErrors.email ? 'error' : (formData.email && !formErrors.email ? 'success' : '')]"
+                placeholder="Enter email address"
+                required
+              >
+              <div v-if="formErrors.email" class="form-error">{{ formErrors.email }}</div>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Age *</label>
+              <input 
+                v-model="formData.age"
+                @blur="validateField('age', formData.age); checkFormChanges()"
+                @input="validateField('age', formData.age); checkFormChanges()"
+                type="number" 
+                :class="['form-input', formErrors.age ? 'error' : (formData.age && !formErrors.age ? 'success' : '')]"
+                placeholder="Enter age"
+                min="1"
+                max="120"
+                required
+              >
+              <div v-if="formErrors.age" class="form-error">{{ formErrors.age }}</div>
+            </div>
+            
+            <div v-if="hasUnsavedChanges" class="unsaved-warning">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              You have unsaved changes
+            </div>
+          </form>
+        </div>
+        
+        <div class="modal-actions">
+          <button 
+            class="btn btn-secondary" 
+            @click="resetForm"
+          >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
+              <path d="M18 6L6 18M6 6l12 12"/>
             </svg>
+            Cancel
+          </button>
+          <button 
+            class="btn btn-primary" 
+            @click="updateUser"
+            :disabled="loading || !isFormValid"
+          >
+            <div v-if="loading" class="loading"></div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            Update User
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div v-if="showDeleteModal" class="modal-overlay" @click="showDeleteModal = false">
+      <div class="modal" @click.stop>
+        <h3 class="modal-title">Confirm Delete</h3>
+        <div class="modal-content">
+          Are you sure you want to delete <strong>{{ userToDelete?.name }}</strong>? This action cannot be undone.
+        </div>
+        <div class="modal-actions">
+          <button 
+            class="btn btn-secondary" 
+            @click="showDeleteModal = false"
+          >
+            Cancel
+          </button>
+          <button 
+            class="btn btn-primary" 
+            @click="deleteUser"
+            :disabled="loading"
+            style="background: var(--error); border-color: var(--error);"
+          >
+            <div v-if="loading" class="loading"></div>
+            Delete User
           </button>
         </div>
       </div>
@@ -579,58 +756,10 @@ onMounted(() => {
   color: #9ca3af;
 }
 
-/* Connection Status Styles */
-.connection-status {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
+.hover\:text-gray-600:hover {
+  color: #4b5563;
 }
 
-.status-indicator {
-  font-size: 0.875rem;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.status-indicator.connected {
-  color: #16a34a;
-}
-
-.status-indicator.disconnected {
-  color: #dc2626;
-}
-
-.test-connection-btn {
-  background: var(--primary-color);
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 0.375rem;
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.test-connection-btn:hover:not(:disabled) {
-  background: var(--primary-hover);
-}
-
-.test-connection-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-@media (max-width: 768px) {
-  .connection-status {
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-}
 @media (min-width: 768px) {
   .md\:grid-cols-3 {
     grid-template-columns: repeat(3, 1fr);
