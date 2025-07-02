@@ -51,8 +51,10 @@ func main() {
 	initializeDefaultTables()
 
 	// Register handlers
+	http.HandleFunc("/users/bulk", withCORS(userBulkHandler))
 	http.HandleFunc("/users/", withCORS(userHandler))
 	http.HandleFunc("/users", withCORS(userHandler))
+	http.HandleFunc("/tables/", withCORS(tableHandler))
 	http.HandleFunc("/tables", withCORS(tableHandler))
 
 	log.Println("Server is running on port 8080")
@@ -162,7 +164,18 @@ func userHandler(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodDelete:
 		if idStr == "" || idStr == "/" {
-			http.Error(w, "DELETE requires user ID", http.StatusBadRequest)
+			// Check if this is a bulk delete request (query parameter bulk=true)
+			bulk := r.URL.Query().Get("bulk")
+			if bulk == "true" {
+				err = deleteAllUsersFromTable(tableName)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			http.Error(w, "DELETE requires user ID or bulk=true parameter", http.StatusBadRequest)
 			return
 		}
 		id, err := strconv.Atoi(idStr)
@@ -184,6 +197,12 @@ func userHandler(w http.ResponseWriter, r *http.Request) {
 
 // Table handler for creating tables dynamically
 func tableHandler(w http.ResponseWriter, r *http.Request) {
+	// Extract table name from URL path for DELETE operations
+	tableName := ""
+	if strings.HasPrefix(r.URL.Path, "/tables/") {
+		tableName = strings.TrimPrefix(r.URL.Path, "/tables/")
+	}
+
 	switch r.Method {
 	case http.MethodPost:
 		var tableRequest struct {
@@ -233,6 +252,43 @@ func tableHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		json.NewEncoder(w).Encode(tables)
+
+	case http.MethodDelete:
+		if tableName == "" {
+			http.Error(w, "Table name is required for DELETE", http.StatusBadRequest)
+			return
+		}
+
+		// Prevent deletion of the default users table
+		if tableName == "users" {
+			http.Error(w, "Cannot delete the default 'users' table", http.StatusForbidden)
+			return
+		}
+
+		// Check if table exists
+		exists, err := checkTableExists(tableName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if !exists {
+			http.Error(w, "Table not found", http.StatusNotFound)
+			return
+		}
+
+		// Drop the table
+		err = dropTable(tableName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": fmt.Sprintf("Table '%s' dropped successfully", tableName),
+			"name":    tableName,
+		})
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -308,6 +364,22 @@ func createTable(tableName string) error {
 	}
 
 	fmt.Printf("Table '%s' created successfully\n", tableName)
+	return nil
+}
+
+func dropTable(tableName string) error {
+	// Prevent dropping the default users table
+	if tableName == "users" {
+		return fmt.Errorf("cannot drop the default 'users' table")
+	}
+
+	query := fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
+	_, err := db.Exec(query)
+	if err != nil {
+		return fmt.Errorf("failed to drop table: %w", err)
+	}
+
+	fmt.Printf("Table '%s' dropped successfully\n", tableName)
 	return nil
 }
 
@@ -493,6 +565,15 @@ func deleteUserFromTable(tableName string, id int) error {
 	return err
 }
 
+func deleteAllUsersFromTable(tableName string) error {
+	query := fmt.Sprintf("DELETE FROM %s", tableName)
+	_, err := db.Exec(query)
+	if err != nil {
+		return fmt.Errorf("failed to delete all users from table %s: %w", tableName, err)
+	}
+	return err
+}
+
 func initializeDefaultTables() {
 	tables := []string{"users"}
 
@@ -509,5 +590,70 @@ func initializeDefaultTables() {
 				log.Printf("Error creating table %s: %v", tableName, err)
 			}
 		}
+	}
+}
+
+// Bulk user handler for bulk operations like bulk create
+func userBulkHandler(w http.ResponseWriter, r *http.Request) {
+	// Extract table name from query parameter, default to "users"
+	tableName := r.URL.Query().Get("table")
+	if tableName == "" {
+		tableName = "users"
+	}
+
+	// Check if table exists
+	tableExists, err := checkTableExists(tableName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !tableExists {
+		http.Error(w, "Table not found", http.StatusNotFound)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPost:
+		// Bulk create users
+		var bulkRequest struct {
+			Users []User `json:"users"`
+			Table string `json:"table"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&bulkRequest); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Use table from request body if provided, otherwise use query parameter
+		if bulkRequest.Table != "" {
+			tableName = bulkRequest.Table
+		}
+
+		// Validate that we have users to create
+		if len(bulkRequest.Users) == 0 {
+			http.Error(w, "No users provided for bulk creation", http.StatusBadRequest)
+			return
+		}
+
+		// Create all users in the database
+		createdUsers := make([]User, 0, len(bulkRequest.Users))
+
+		for _, userData := range bulkRequest.Users {
+			newUser, err := createUserInTable(tableName, userData)
+			if err != nil {
+				// If one fails, we could either fail the whole operation or continue
+				// For now, let's continue and report which ones failed
+				log.Printf("Failed to create user: %v", err)
+				continue
+			}
+			createdUsers = append(createdUsers, newUser)
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(createdUsers)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }

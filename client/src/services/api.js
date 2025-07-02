@@ -10,10 +10,10 @@ const api = axios.create({
 
 // User API functions
 export const userAPI = {
-  // Get all users
-  async getAllUsers() {
+  // Get all users from a specific table
+  async getAllUsers(tableName = 'users') {
     try {
-      const response = await api.get('/users')
+      const response = await api.get(`/users?table=${tableName}`)
       return response.data
     } catch (error) {
       console.error('Error fetching users:', error)
@@ -21,10 +21,10 @@ export const userAPI = {
     }
   },
 
-  // Create new user
-  async createUser(userData) {
+  // Create new user in a specific table
+  async createUser(userData, tableName = 'users') {
     try {
-      const response = await api.post('/users', userData)
+      const response = await api.post(`/users?table=${tableName}`, userData)
       return response.data
     } catch (error) {
       console.error('Error creating user:', error)
@@ -32,24 +32,50 @@ export const userAPI = {
     }
   },
 
-  // Update user
-  async updateUser(id, userData) {
+  // Update user in a specific table
+  async updateUser(id, userData, tableName = 'users') {
     try {
-      const response = await api.put(`/users/${id}`, userData)
-      return response.data
+      const response = await api.put(`/users/${id}?table=${tableName}`, userData)
+      // Server returns 204 No Content on successful update, so return success indicator
+      return response.status === 204 || response.status === 200
     } catch (error) {
       console.error('Error updating user:', error)
       throw error
     }
   },
 
-  // Delete user
-  async deleteUser(id) {
+  // Delete user from a specific table
+  async deleteUser(id, tableName = 'users') {
     try {
-      await api.delete(`/users/${id}`)
+      await api.delete(`/users/${id}?table=${tableName}`)
       return true
     } catch (error) {
       console.error('Error deleting user:', error)
+      throw error
+    }
+  },
+
+  // Delete all users from a specific table
+  async deleteAllUsers(tableName = 'users') {
+    try {
+      await api.delete(`/users?table=${tableName}&bulk=true`)
+      return true
+    } catch (error) {
+      console.error('Error deleting all users:', error)
+      throw error
+    }
+  },
+
+  // Bulk create users in a specific table
+  async bulkCreateUsers(usersData, tableName = 'users') {
+    try {
+      const response = await api.post('/users/bulk', {
+        users: usersData,
+        table: tableName
+      })
+      return response.data
+    } catch (error) {
+      console.error('Error bulk creating users:', error)
       throw error
     }
   }
@@ -77,6 +103,17 @@ export const tableAPI = {
       console.error('Error creating table:', error)
       throw error
     }
+  },
+
+  // Drop/delete table
+  async dropTable(tableName) {
+    try {
+      const response = await api.delete(`/tables/${tableName}`)
+      return response.data
+    } catch (error) {
+      console.error('Error dropping table:', error)
+      throw error
+    }
   }
 }
 
@@ -87,6 +124,13 @@ export const checkServerHealth = async () => {
     return true
   } catch (error) {
     return false
+  }
+}
+
+// Health check API
+export const healthAPI = {
+  async checkServer() {
+    return checkServerHealth()
   }
 }
 

@@ -82,6 +82,12 @@
   
   /* Gradients */
   --gradient-primary: linear-gradient(135deg, var(--primary-600) 0%, var(--primary-700) 100%);
+  --gradient-subtle: linear-gradient(135deg, var(--neutral-50) 0%, var(--background) 100%);
+  
+  /* Letter Spacing */
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.025em;
 }
 
 /* Reset & Base Styles */
@@ -235,9 +241,26 @@ a:hover {
 
 .flex { display: flex; }
 .items-center { align-items: center; }
+.justify-center { justify-content: center; }
+.justify-between { justify-content: space-between; }
 .gap-sm { gap: var(--space-sm); }
 .gap-md { gap: var(--space-md); }
 .gap-lg { gap: var(--space-lg); }
+.flex-wrap { flex-wrap: wrap; }
+.flex-col { flex-direction: column; }
+
+/* Margin utilities */
+.mb-2 { margin-bottom: 0.5rem; }
+.mb-4 { margin-bottom: 1rem; }
+.mb-6 { margin-bottom: 1.5rem; }
+.mb-8 { margin-bottom: 2rem; }
+.mt-2 { margin-top: 0.5rem; }
+.mx-auto { margin-left: auto; margin-right: auto; }
+
+/* Padding utilities */
+.p-4 { padding: 1rem; }
+.p-8 { padding: 2rem; }
+.py-8 { padding-top: 2rem; padding-bottom: 2rem; }
 
 /* Responsive */
 @media (max-width: 768px) {

@@ -1,0 +1,11 @@
+name,email,age,phone,website,department,salary,hire_date
+John Doe,john.doe@example.com,25,+1-555-0123,https://johndoe.dev,Engineering,75000,2023-01-15
+Jane Smith,jane.smith@example.com,30,+1-555-0124,https://janesmith.com,Marketing,65000,2022-06-20
+Bob Johnson,bob.johnson@example.com,35,+1-555-0125,https://bobjohnson.net,Sales,55000,2021-03-10
+Alice Williams,alice.williams@example.com,28,+1-555-0126,,HR,60000,2023-05-05
+Charlie Brown,charlie.brown@example.com,32,+1-555-0127,https://charliebrown.org,Engineering,80000,2020-09-15
+Diana Davis,diana.davis@example.com,26,+1-555-0128,https://dianadavis.io,Design,70000,2023-02-28
+Eve Wilson,eve.wilson@example.com,29,+1-555-0129,,Engineering,72000,2022-11-12
+Frank Miller,frank.miller@example.com,31,+1-555-0130,https://frankmiller.dev,DevOps,85000,2021-08-03
+Grace Lee,grace.lee@example.com,27,+1-555-0131,https://gracelee.com,Product,68000,2023-04-18
+Henry Garcia,henry.garcia@example.com,33,+1-555-0132,,Sales,58000,2022-01-25
