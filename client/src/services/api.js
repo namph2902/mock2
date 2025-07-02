@@ -8,42 +8,6 @@ const api = axios.create({
   }
 })
 
-// Request interceptor
-api.interceptors.request.use(
-  (config) => {
-    // Add auth token if available
-    const token = localStorage.getItem('authToken')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  (error) => {
-    return Promise.reject(error)
-  }
-)
-
-// Response interceptor
-api.interceptors.response.use(
-  (response) => {
-    return response
-  },
-  (error) => {
-    // Handle common errors
-    if (error.response?.status === 401) {
-      // Unauthorized - redirect to login or clear auth
-      localStorage.removeItem('authToken')
-    }
-    
-    // Network error
-    if (!error.response) {
-      console.error('Network Error: Please check if the server is running')
-    }
-    
-    return Promise.reject(error)
-  }
-)
-
 // User API functions
 export const userAPI = {
   // Get all users
@@ -53,17 +17,6 @@ export const userAPI = {
       return response.data
     } catch (error) {
       console.error('Error fetching users:', error)
-      throw error
-    }
-  },
-
-  // Get user by ID
-  async getUserById(id) {
-    try {
-      const response = await api.get(`/users/${id}`)
-      return response.data
-    } catch (error) {
-      console.error('Error fetching user:', error)
       throw error
     }
   },
@@ -97,6 +50,31 @@ export const userAPI = {
       return true
     } catch (error) {
       console.error('Error deleting user:', error)
+      throw error
+    }
+  }
+}
+
+// Table API functions
+export const tableAPI = {
+  // Get all tables
+  async getAllTables() {
+    try {
+      const response = await api.get('/tables')
+      return response.data
+    } catch (error) {
+      console.error('Error fetching tables:', error)
+      throw error
+    }
+  },
+
+  // Create new table
+  async createTable(tableName) {
+    try {
+      const response = await api.post('/tables', { name: tableName })
+      return response.data
+    } catch (error) {
+      console.error('Error creating table:', error)
       throw error
     }
   }

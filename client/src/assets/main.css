@@ -41,7 +41,6 @@
 
 /* Enhanced Navigation with Glass Effect */
 .navbar {
-  background: var(--surface-glass);
   backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border-light);
   position: sticky;
@@ -65,11 +64,6 @@
 .navbar-brand {
   font-size: var(--text-xl);
   font-weight: 800;
-  font-variation-settings: 'wght' 800;
-  background: var(--gradient-accent);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
   letter-spacing: var(--tracking-tight);
 }
 
@@ -97,7 +91,7 @@
   left: 0;
   right: 0;
   height: 3px;
-  background: var(--gradient-accent);
+  background: var(--gradient-primary);
 }
 
 .user-table {
