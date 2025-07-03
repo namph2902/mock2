@@ -2,7 +2,6 @@ import { ref } from 'vue'
 
 export function useModals() {
   const showColumnModal = ref(false)
-  const showCsvModal = ref(false)
   const showDeleteConfirmModal = ref(false)
   const showEditModal = ref(false)
   const deleteConfirmAction = ref(null)
@@ -44,7 +43,6 @@ export function useModals() {
 
   return {
     showColumnModal,
-    showCsvModal,
     showDeleteConfirmModal,
     showEditModal,
     deleteConfirmAction,

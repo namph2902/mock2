@@ -51,11 +51,12 @@ func main() {
 	initializeDefaultTables()
 
 	// Register handlers
-	http.HandleFunc("/users/bulk", withCORS(userBulkHandler))
 	http.HandleFunc("/users/", withCORS(userHandler))
 	http.HandleFunc("/users", withCORS(userHandler))
 	http.HandleFunc("/tables/", withCORS(tableHandler))
 	http.HandleFunc("/tables", withCORS(tableHandler))
+	http.HandleFunc("/columns/", withCORS(columnHandler))
+	http.HandleFunc("/columns", withCORS(columnHandler))
 
 	log.Println("Server is running on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
@@ -164,18 +165,7 @@ func userHandler(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodDelete:
 		if idStr == "" || idStr == "/" {
-			// Check if this is a bulk delete request (query parameter bulk=true)
-			bulk := r.URL.Query().Get("bulk")
-			if bulk == "true" {
-				err = deleteAllUsersFromTable(tableName)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			http.Error(w, "DELETE requires user ID or bulk=true parameter", http.StatusBadRequest)
+			http.Error(w, "DELETE requires user ID", http.StatusBadRequest)
 			return
 		}
 		id, err := strconv.Atoi(idStr)
@@ -206,7 +196,9 @@ func tableHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		var tableRequest struct {
-			Name string `json:"name"`
+			Name       string                 `json:"name"`
+			Columns    map[string]string      `json:"columns,omitempty"`    // Optional: column_name -> column_type
+			SampleData map[string]interface{} `json:"sampleData,omitempty"` // Optional: column_name -> sample_value
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&tableRequest); err != nil {
@@ -231,21 +223,36 @@ func tableHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Create the table
-		err = createTable(tableRequest.Name)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		// Create the table with optional columns or sample data
+		var err2 error
+		if len(tableRequest.Columns) > 0 {
+			err2 = createTableWithColumns(tableRequest.Name, tableRequest.Columns)
+		} else if len(tableRequest.SampleData) > 0 {
+			err2 = createDynamicTable(tableRequest.Name, tableRequest.SampleData)
+		} else {
+			err2 = createTable(tableRequest.Name)
+		}
+
+		if err2 != nil {
+			http.Error(w, err2.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{
+		response := map[string]interface{}{
 			"message": fmt.Sprintf("Table '%s' created successfully", tableRequest.Name),
 			"name":    tableRequest.Name,
-		})
+		}
+
+		if len(tableRequest.Columns) > 0 {
+			response["columns"] = len(tableRequest.Columns)
+		} else if len(tableRequest.SampleData) > 0 {
+			response["columns"] = len(tableRequest.SampleData)
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(response)
 
 	case http.MethodGet:
-		// Return list of all tables
 		tables, err := getAllTables()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -348,22 +355,122 @@ func checkTableExists(tableName string) (bool, error) {
 }
 
 func createTable(tableName string) error {
-	// Create table with default structure
-	query := fmt.Sprintf(`
-        CREATE TABLE %s (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            email VARCHAR(255) NOT NULL,
-            age INTEGER NOT NULL,
-            created_at TIMESTAMP DEFAULT NOW()
-        )`, tableName)
+	return createDynamicTable(tableName, nil)
+}
+
+// createDynamicTable creates a table with optional predefined columns
+func createDynamicTable(tableName string, columns map[string]interface{}) error {
+	var columnDefs []string
+
+	// Always add id column first
+	columnDefs = append(columnDefs, "id SERIAL PRIMARY KEY")
+
+	// Add predefined columns if provided
+	if len(columns) > 0 {
+		for colName, sampleValue := range columns {
+			if colName == "id" {
+				continue
+			}
+
+			// Sanitize column name
+			safeColName := strings.ToLower(strings.ReplaceAll(colName, " ", "_"))
+			safeColName = regexp.MustCompile(`[^a-z0-9_]`).ReplaceAllString(safeColName, "_")
+
+			// Determine column type
+			columnType := determineColumnType(safeColName, sampleValue)
+			columnDefs = append(columnDefs, fmt.Sprintf("%s %s", safeColName, columnType))
+		}
+	}
+
+	query := fmt.Sprintf("CREATE TABLE %s (%s)", tableName, strings.Join(columnDefs, ", "))
 
 	_, err := db.Exec(query)
 	if err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
 
-	fmt.Printf("Table '%s' created successfully\n", tableName)
+	if len(columns) > 0 {
+		fmt.Printf("Table '%s' created successfully with %d predefined columns\n", tableName, len(columns))
+	} else {
+		fmt.Printf("Table '%s' created successfully with id column only\n", tableName)
+	}
+	return nil
+}
+
+// determineColumnType determines the PostgreSQL column type based on sample value
+func determineColumnType(columnName string, sampleValue interface{}) string {
+	// Check column name patterns first
+	columnLower := strings.ToLower(columnName)
+
+	if strings.Contains(columnLower, "email") || strings.Contains(columnLower, "mail") {
+		return "VARCHAR(255)"
+	}
+	if strings.Contains(columnLower, "phone") || strings.Contains(columnLower, "tel") {
+		return "VARCHAR(20)"
+	}
+	if strings.Contains(columnLower, "url") || strings.Contains(columnLower, "website") {
+		return "TEXT"
+	}
+	if strings.Contains(columnLower, "age") {
+		return "INTEGER"
+	}
+	if strings.Contains(columnLower, "salary") || strings.Contains(columnLower, "price") || strings.Contains(columnLower, "amount") {
+		return "DECIMAL(12,2)"
+	}
+
+	// Check sample value type
+	switch v := sampleValue.(type) {
+	case string:
+		if emailPattern.MatchString(v) {
+			return "VARCHAR(255)"
+		} else if len(v) > 255 {
+			return "TEXT"
+		} else {
+			return "VARCHAR(255)"
+		}
+	case int, int64:
+		return "INTEGER"
+	case float64:
+		return "DECIMAL(10,2)"
+	case bool:
+		return "BOOLEAN"
+	default:
+		return "TEXT" // Default fallback
+	}
+}
+
+// createTableWithColumns creates a table with specified columns
+func createTableWithColumns(tableName string, columns map[string]string) error {
+	if len(columns) == 0 {
+		// If no columns specified, create with default structure
+		return createTable(tableName)
+	}
+
+	var columnDefs []string
+
+	// Always add id column first
+	columnDefs = append(columnDefs, "id SERIAL PRIMARY KEY")
+
+	// Add custom columns
+	for colName, colType := range columns {
+		if colName == "id" {
+			continue
+		}
+
+		safeColName := strings.ToLower(strings.ReplaceAll(colName, " ", "_"))
+		safeColName = regexp.MustCompile(`[^a-z0-9_]`).ReplaceAllString(safeColName, "_")
+
+		columnDefs = append(columnDefs, fmt.Sprintf("%s %s", safeColName, colType))
+	}
+
+	query := fmt.Sprintf("CREATE TABLE %s (%s)", tableName, strings.Join(columnDefs, ", "))
+
+	_, err := db.Exec(query)
+	if err != nil {
+		return fmt.Errorf("failed to create table with columns: %w", err)
+	}
+
+	fmt.Printf("Table '%s' created successfully with %d custom columns\n", tableName, len(columns))
 	return nil
 }
 
@@ -405,6 +512,32 @@ func getTableColumns(tableName string) ([]string, error) {
 		columns = append(columns, column)
 	}
 	return columns, nil
+}
+
+// addColumnToTable dynamically adds a new column to an existing table
+func addColumnToTable(tableName, columnName string, sampleValue interface{}) error {
+	actualColumnName, err := addColumnToTableWithReturn(tableName, columnName, sampleValue)
+	if err != nil {
+		return err
+	}
+	log.Printf("Successfully added column '%s' (%s) to table '%s'", actualColumnName, determineColumnType(actualColumnName, sampleValue), tableName)
+	return nil
+}
+
+// addColumnToTableWithReturn dynamically adds a new column and returns the actual column name created
+func addColumnToTableWithReturn(tableName, columnName string, sampleValue interface{}) (string, error) {
+	safeColumnName := strings.ToLower(strings.ReplaceAll(columnName, " ", "_"))
+	safeColumnName = regexp.MustCompile(`[^a-z0-9_]`).ReplaceAllString(safeColumnName, "_")
+
+	columnType := determineColumnType(safeColumnName, sampleValue)
+
+	query := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, safeColumnName, columnType)
+	_, err := db.Exec(query)
+	if err != nil {
+		return "", fmt.Errorf("failed to add column %s to table %s: %w", safeColumnName, tableName, err)
+	}
+
+	return safeColumnName, nil
 }
 
 func getTableData(tableName string) ([]User, error) {
@@ -481,6 +614,33 @@ func createUserInTable(tableName string, userData User) (User, error) {
 		return nil, err
 	}
 
+	// Check for new columns in userData and add them to the table
+	for col := range userData {
+		if col == "id" {
+			continue // Skip id column
+		}
+
+		// Check if column exists in table
+		columnExists := false
+		for _, existingCol := range columns {
+			if existingCol == col {
+				columnExists = true
+				break
+			}
+		}
+
+		// Add column if it doesn't exist
+		if !columnExists {
+			err = addColumnToTable(tableName, col, userData[col])
+			if err != nil {
+				log.Printf("Warning: Failed to add column %s to table %s: %v", col, tableName, err)
+				continue
+			}
+			columns = append(columns, col)
+			log.Printf("Added new column '%s' to table '%s'", col, tableName)
+		}
+	}
+
 	// Filter out id column for insert
 	var insertColumns []string
 	var values []interface{}
@@ -489,7 +649,7 @@ func createUserInTable(tableName string, userData User) (User, error) {
 
 	for _, col := range columns {
 		if col == "id" {
-			continue // Skip id column as it's auto-increment
+			continue
 		}
 		if value, exists := userData[col]; exists {
 			insertColumns = append(insertColumns, col)
@@ -565,15 +725,6 @@ func deleteUserFromTable(tableName string, id int) error {
 	return err
 }
 
-func deleteAllUsersFromTable(tableName string) error {
-	query := fmt.Sprintf("DELETE FROM %s", tableName)
-	_, err := db.Exec(query)
-	if err != nil {
-		return fmt.Errorf("failed to delete all users from table %s: %w", tableName, err)
-	}
-	return err
-}
-
 func initializeDefaultTables() {
 	tables := []string{"users"}
 
@@ -593,12 +744,12 @@ func initializeDefaultTables() {
 	}
 }
 
-// Bulk user handler for bulk operations like bulk create
-func userBulkHandler(w http.ResponseWriter, r *http.Request) {
-	// Extract table name from query parameter, default to "users"
+// Column handler for adding/removing columns from tables
+func columnHandler(w http.ResponseWriter, r *http.Request) {
 	tableName := r.URL.Query().Get("table")
 	if tableName == "" {
-		tableName = "users"
+		http.Error(w, "Table name is required", http.StatusBadRequest)
+		return
 	}
 
 	// Check if table exists
@@ -614,46 +765,100 @@ func userBulkHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPost:
-		// Bulk create users
-		var bulkRequest struct {
-			Users []User `json:"users"`
-			Table string `json:"table"`
+		// Add column to table
+		var columnData struct {
+			Key          string `json:"key"`
+			Label        string `json:"label"`
+			Type         string `json:"type"`
+			Required     bool   `json:"required"`
+			DefaultValue string `json:"defaultValue"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&bulkRequest); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if err := json.NewDecoder(r.Body).Decode(&columnData); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
 
-		// Use table from request body if provided, otherwise use query parameter
-		if bulkRequest.Table != "" {
-			tableName = bulkRequest.Table
-		}
-
-		// Validate that we have users to create
-		if len(bulkRequest.Users) == 0 {
-			http.Error(w, "No users provided for bulk creation", http.StatusBadRequest)
+		if columnData.Key == "" {
+			http.Error(w, "Column key is required", http.StatusBadRequest)
 			return
 		}
 
-		// Create all users in the database
-		createdUsers := make([]User, 0, len(bulkRequest.Users))
+		// Check if column already exists
+		if columnExists(tableName, columnData.Key) {
+			http.Error(w, "Column already exists", http.StatusConflict)
+			return
+		}
 
-		for _, userData := range bulkRequest.Users {
-			newUser, err := createUserInTable(tableName, userData)
-			if err != nil {
-				// If one fails, we could either fail the whole operation or continue
-				// For now, let's continue and report which ones failed
-				log.Printf("Failed to create user: %v", err)
-				continue
-			}
-			createdUsers = append(createdUsers, newUser)
+		// Add column to table
+		actualColumnName, err := addColumnToTableWithReturn(tableName, columnData.Key, columnData.DefaultValue)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error adding column: %v", err), http.StatusInternalServerError)
+			return
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(createdUsers)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"message":          "Column added successfully",
+			"actualColumnName": actualColumnName,
+		})
+
+	case http.MethodDelete:
+		// Remove column from table
+		columnKey := r.URL.Query().Get("column")
+		if columnKey == "" {
+			http.Error(w, "Column key is required", http.StatusBadRequest)
+			return
+		}
+
+		// Prevent deletion of ID column
+		if columnKey == "id" {
+			http.Error(w, "Cannot delete ID column", http.StatusBadRequest)
+			return
+		}
+
+		// Check if column exists
+		if !columnExists(tableName, columnKey) {
+			http.Error(w, "Column not found", http.StatusNotFound)
+			return
+		}
+
+		// Drop column from table
+		query := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", tableName, columnKey)
+		_, err = db.Exec(query)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error removing column: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Column removed successfully"})
+
+	case http.MethodGet:
+		columns, err := getTableColumns(tableName)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get columns: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(columns)
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// Helper function to check if a column exists in a table
+func columnExists(tableName, columnName string) bool {
+	query := `
+		SELECT COUNT(*) 
+		FROM information_schema.columns 
+		WHERE table_name = $1 AND column_name = $2
+	`
+	var count int
+	err := db.QueryRow(query, tableName, columnName).Scan(&count)
+	if err != nil {
+		return false
+	}
+	return count > 0
 }

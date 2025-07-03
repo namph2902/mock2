@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "axios": "^1.10.0",
-    "vue": "^3.5.17"
+    "vue": "^3.5.17",
+    "vue-csv-import": "^4.1.2"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.0",

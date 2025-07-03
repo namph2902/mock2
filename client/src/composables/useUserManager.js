@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { userAPI } from '../services/api.js'
+import { userAPI, columnAPI } from '../services/api.js'
 import { useNotifications } from './useNotifications.js'
 import { useValidation } from './useValidation.js'
 
@@ -34,7 +34,11 @@ export function useUserManager(tableManager) {
     const newFormData = {}
     tableManager.columns.value.forEach(col => {
       if (col.editable) {
-        newFormData[col.key] = col.defaultValue || ''
+        if (col.type === 'number') {
+          newFormData[col.key] = col.defaultValue || '0'
+        } else {
+          newFormData[col.key] = col.defaultValue || ''
+        }
       }
     })
     formData.value = newFormData
@@ -45,7 +49,11 @@ export function useUserManager(tableManager) {
     const newFormData = {}
     tableManager.columns.value.forEach(col => {
       if (col.editable) {
-        newFormData[col.key] = col.defaultValue || ''
+        if (col.type === 'number') {
+          newFormData[col.key] = col.defaultValue || '0'
+        } else {
+          newFormData[col.key] = col.defaultValue || ''
+        }
       }
     })
     formData.value = newFormData
@@ -58,11 +66,6 @@ export function useUserManager(tableManager) {
       return
     }
 
-    if (!tableManager.serverConnected.value) {
-      showNotification('Cannot create user: Server not available', 'error')
-      return
-    }
-    
     tableManager.loading.value = true
     try {
       const userData = {}
@@ -74,11 +77,22 @@ export function useUserManager(tableManager) {
         }
       })
       
-      const newUser = await userAPI.createUser(userData, tableManager.currentTable.value)
-      tableManager.users.value.push(newUser)
+      if (tableManager.serverConnected.value) {
+        // Server-side creation
+        const newUser = await userAPI.createUser(userData, tableManager.currentTable.value)
+        tableManager.users.value.push(newUser)
+        showNotification(`User created successfully in table "${tableManager.currentTable.value}"!`, 'success')
+      } else {
+        // Local-only creation
+        const newUser = {
+          id: Date.now() + Math.random(), // Generate temporary ID
+          ...userData
+        }
+        tableManager.users.value.push(newUser)
+        showNotification(`User created locally in table "${tableManager.currentTable.value}" (server disconnected)!`, 'warning')
+      }
       
       clearAddForm()
-      showNotification(`User created successfully in table "${tableManager.currentTable.value}"!`, 'success')
     } catch (error) {
       console.error('Error creating user:', error)
       if (error.response && error.response.status === 500 && error.response.data?.includes('validation failed')) {
@@ -104,11 +118,6 @@ export function useUserManager(tableManager) {
       return false
     }
 
-    if (!tableManager.serverConnected.value) {
-      showNotification('Cannot update user: Server not available', 'error')
-      return false
-    }
-
     tableManager.loading.value = true
     try {
       // Build userData from all editable columns
@@ -125,9 +134,16 @@ export function useUserManager(tableManager) {
       console.log('User ID:', editingUser.value.id)
       console.log('Table:', tableManager.currentTable.value)
       
-      await userAPI.updateUser(editingUser.value.id, userData, tableManager.currentTable.value)
+      if (tableManager.serverConnected.value) {
+        // Server-side update
+        await userAPI.updateUser(editingUser.value.id, userData, tableManager.currentTable.value)
+        showNotification('User updated successfully!', 'success')
+      } else {
+        // Local-only update
+        showNotification('User updated locally (server disconnected)!', 'warning')
+      }
       
-      // Update local data
+      // Update local data in both cases
       const index = tableManager.users.value.findIndex(u => u.id === editingUser.value.id)
       if (index !== -1) {
         tableManager.users.value[index] = {
@@ -137,7 +153,6 @@ export function useUserManager(tableManager) {
       }
       
       resetForm()
-      showNotification('User updated successfully!', 'success')
       return true // Indicate success for modal closing
     } catch (error) {
       console.error('Error updating user:', error)
@@ -154,20 +169,25 @@ export function useUserManager(tableManager) {
   }
 
   const deleteUser = async (id, showDeleteConfirm) => {
-    if (!tableManager.serverConnected.value) {
-      showNotification('Cannot delete user: Server not available', 'error')
-      return
-    }
-
     const user = tableManager.users.value.find(u => u.id === id)
+    const confirmMessage = tableManager.serverConnected.value 
+      ? `Delete user "${user?.name || 'Unknown'}" from table "${tableManager.currentTable.value}"?`
+      : `Delete user "${user?.name || 'Unknown'}" from table "${tableManager.currentTable.value}" (local data only)?`
+
     showDeleteConfirm(
-      `Delete user "${user?.name || 'Unknown'}" from table "${tableManager.currentTable.value}"?`,
+      confirmMessage,
       async () => {
         tableManager.loading.value = true
         try {
-          await userAPI.deleteUser(id, tableManager.currentTable.value)
+          if (tableManager.serverConnected.value) {
+            await userAPI.deleteUser(id, tableManager.currentTable.value)
+            showNotification('User deleted successfully!', 'success')
+          } else {
+            showNotification('User deleted locally (server disconnected)!', 'warning')
+          }
+          
+          // Remove from local data in both cases
           tableManager.users.value = tableManager.users.value.filter(user => user.id !== id)
-          showNotification('User deleted successfully!', 'success')
         } catch (error) {
           console.error('Error deleting user:', error)
           showNotification('Error deleting user. Please try again.', 'error')
@@ -190,41 +210,86 @@ export function useUserManager(tableManager) {
     formData.value = newFormData
   }
 
-  const addColumn = () => {
+  const addColumn = async () => {
     if (!newColumn.value.key || !newColumn.value.label) {
       showNotification('Please fill in column key and label', 'error')
-      return
+      return false
     }
 
     if (tableManager.columns.value.some(col => col.key === newColumn.value.key)) {
       showNotification('Column key already exists', 'error')
-      return
+      return false
     }
 
-    const columnToAdd = {
-      ...newColumn.value,
-      editable: true
-    }
-
-    tableManager.columns.value.push(columnToAdd)
-    
-    // Add default value to all existing users in current table
-    tableManager.users.value.forEach(user => {
-      if (!(newColumn.value.key in user)) {
-        user[newColumn.value.key] = newColumn.value.defaultValue || ''
+    if (!tableManager.serverConnected.value) {
+      // Allow client-side only operation when server is disconnected
+      const columnToAdd = {
+        ...newColumn.value,
+        editable: true
       }
-    })
 
-    // Add to form data
-    formData.value[newColumn.value.key] = newColumn.value.defaultValue || ''
+      tableManager.columns.value.push(columnToAdd)
+      
+      // Add default value to all existing users in current table
+      tableManager.users.value.forEach(user => {
+        if (!(newColumn.value.key in user)) {
+          const defaultValue = newColumn.value.type === 'number' ? 
+            (newColumn.value.defaultValue || '0') : 
+            (newColumn.value.defaultValue || '')
+          user[newColumn.value.key] = defaultValue
+        }
+      })
 
-    resetNewColumn()
-    showNotification(`Column added to table "${tableManager.currentTable.value}" successfully!`, 'success')
-    
-    return true // Success
+      // Add to form data
+      const defaultValue = newColumn.value.type === 'number' ? 
+        (newColumn.value.defaultValue || '0') : 
+        (newColumn.value.defaultValue || '')
+      formData.value[newColumn.value.key] = defaultValue
+
+      resetNewColumn()
+      showNotification(`Column added to table "${tableManager.currentTable.value}" (client-side only)!`, 'warning')
+      return true
+    }
+
+    // Server-side operation
+    tableManager.loading.value = true
+    try {
+      const response = await columnAPI.addColumn(tableManager.currentTable.value, newColumn.value)
+      // Use the actual column name returned by the server
+      const actualColumnName = response.actualColumnName || newColumn.value.key
+      // Fetch latest columns from server using shared function
+      await tableManager.fetchAndSetColumns(tableManager.currentTable.value)
+      // Add default value to all existing users in current table
+      tableManager.users.value.forEach(user => {
+        if (!(actualColumnName in user)) {
+          const defaultValue = newColumn.value.type === 'number' ? 
+            (newColumn.value.defaultValue || '0') : 
+            (newColumn.value.defaultValue || '')
+          user[actualColumnName] = defaultValue
+        }
+      })
+      // Add to form data
+      const defaultValue = newColumn.value.type === 'number' ? 
+        (newColumn.value.defaultValue || '0') : 
+        (newColumn.value.defaultValue || '')
+      formData.value[actualColumnName] = defaultValue
+      resetNewColumn()
+      showNotification(`Column added to table "${tableManager.currentTable.value}" successfully!`, 'success')
+      return true
+    } catch (error) {
+      console.error('Error adding column:', error)
+      if (error.response && error.response.status === 409) {
+        showNotification('Column already exists on server', 'error')
+      } else {
+        showNotification('Error adding column. Please try again.', 'error')
+      }
+      return false
+    } finally {
+      tableManager.loading.value = false
+    }
   }
 
-  const deleteColumn = (columnKey, showDeleteConfirm) => {
+  const deleteColumn = async (columnKey, showDeleteConfirm) => {
     // For default 'users' table, only allow deletion of non-default columns
     if (tableManager.currentTable.value === 'users' && tableManager.defaultColumns.some(col => col.key === columnKey)) {
       showNotification('Cannot delete default columns from the users table', 'error')
@@ -239,19 +304,46 @@ export function useUserManager(tableManager) {
     
     showDeleteConfirm(
       `Delete column "${columnKey}" from table "${tableManager.currentTable.value}"? This will remove all data in this column.`,
-      () => {
-        // Remove column from current table
-        tableManager.columns.value = tableManager.columns.value.filter(col => col.key !== columnKey)
-        
-        // Remove data from all users in current table
-        tableManager.users.value.forEach(user => {
-          delete user[columnKey]
-        })
+      async () => {
+        if (!tableManager.serverConnected.value) {
+          // Client-side only operation
+          tableManager.columns.value = tableManager.columns.value.filter(col => col.key !== columnKey)
+          
+          // Remove data from all users in current table
+          tableManager.users.value.forEach(user => {
+            delete user[columnKey]
+          })
 
-        // Remove from form data
-        delete formData.value[columnKey]
+          // Remove from form data
+          delete formData.value[columnKey]
 
-        showNotification(`Column "${columnKey}" deleted from table "${tableManager.currentTable.value}"!`, 'success')
+          showNotification(`Column "${columnKey}" deleted from table "${tableManager.currentTable.value}" (client-side only)!`, 'warning')
+          return
+        }
+
+        // Server-side operation
+        tableManager.loading.value = true
+        try {
+          await columnAPI.removeColumn(tableManager.currentTable.value, columnKey)
+          // Fetch latest columns from server using shared function
+          await tableManager.fetchAndSetColumns(tableManager.currentTable.value)
+          // Remove data from all users in current table
+          tableManager.users.value.forEach(user => {
+            delete user[columnKey]
+          })
+          // Remove from form data
+          delete formData.value[columnKey]
+          showNotification(`Column "${columnKey}" deleted from table "${tableManager.currentTable.value}"!`, 'success')
+        } catch (error) {
+          console.error('Error deleting column:', error)
+          if (error.response && error.response.status === 404) {
+            showNotification('Column not found on server', 'error')
+          } else {
+            showNotification('Error deleting column. Please try again.', 'error')
+          }
+        } finally {
+          tableManager.loading.value = false
+        }
       }
     )
   }

@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { userAPI, tableAPI, checkServerHealth } from '../services/api.js'
+import { userAPI, tableAPI, columnAPI, checkServerHealth } from '../services/api.js'
 import { useNotifications } from './useNotifications.js'
 import { useValidation } from './useValidation.js'
 
@@ -15,10 +15,7 @@ export function useTableManager() {
   const newTableName = ref('')
 
   const defaultColumns = [
-    { key: 'id', label: 'ID', type: 'number', required: true, editable: false },
-    { key: 'name', label: 'Name', type: 'text', required: true, editable: true },
-    { key: 'email', label: 'Email', type: 'email', required: true, editable: true },
-    { key: 'age', label: 'Age', type: 'number', required: true, editable: true }
+    { key: 'id', label: 'ID', type: 'number', required: true, editable: false }
   ]
 
   // Store data and columns separately for each table
@@ -27,7 +24,9 @@ export function useTableManager() {
   })
 
   const tableColumns = ref({
-    users: [...defaultColumns]
+    users: [
+      { key: 'id', label: 'ID', type: 'number', required: true, editable: false }
+    ]
   })
 
   // Computed properties for current table
@@ -39,7 +38,9 @@ export function useTableManager() {
   })
 
   const columns = computed({
-    get: () => tableColumns.value[currentTable.value] || [...defaultColumns],
+    get: () => tableColumns.value[currentTable.value] || [
+      { key: 'id', label: 'ID', type: 'number', required: true, editable: false }
+    ],
     set: (value) => {
       tableColumns.value[currentTable.value] = value
     }
@@ -63,7 +64,31 @@ export function useTableManager() {
     return 'text'
   }
 
-  const switchTable = (tableName) => {
+  // Helper function to fetch and set columns from server
+  const fetchAndSetColumns = async (tableName) => {
+    if (!serverConnected.value) return
+
+    try {
+      const serverColumns = await columnAPI.getColumns(tableName)
+      if (serverColumns && serverColumns.length > 0) {
+        // Transform server column names into column objects
+        const columnObjects = serverColumns.map(columnName => ({
+          key: columnName,
+          label: columnName.charAt(0).toUpperCase() + columnName.slice(1).replace(/_/g, ' '),
+          type: detectColumnType(columnName, null), // Will be refined when data is loaded
+          required: columnName === 'id',
+          editable: columnName !== 'id'
+        }))
+        
+        tableColumns.value[tableName] = columnObjects
+      }
+    } catch (error) {
+      console.error('Error fetching columns for table:', tableName, error)
+      // If fetching columns fails, fall back to default behavior
+    }
+  }
+
+  const switchTable = async (tableName) => {
     if (tableName === currentTable.value) return
     
     currentTable.value = tableName
@@ -73,16 +98,14 @@ export function useTableManager() {
       tableData.value[tableName] = []
     }
     if (!tableColumns.value[tableName]) {
-      // For the default 'users' table, use default columns
-      // For other tables, use minimal columns (just ID)
-      if (tableName === 'users') {
-        tableColumns.value[tableName] = [...defaultColumns]
-      } else {
-        tableColumns.value[tableName] = [
-          { key: 'id', label: 'ID', type: 'number', required: true, editable: false }
-        ]
-      }
+      // For all tables, use minimal columns (just ID) initially
+      tableColumns.value[tableName] = [
+        { key: 'id', label: 'ID', type: 'number', required: true, editable: false }
+      ]
     }
+    
+    // Fetch actual columns from server
+    await fetchAndSetColumns(tableName)
     
     showNotification(`Switched to table "${tableName}"`, 'success')
   }
@@ -127,7 +150,7 @@ export function useTableManager() {
           currentTable.value = tableName
           
           newTableName.value = ''
-          showNotification(`Table "${tableName}" created successfully! You can now add custom columns or import CSV data.`, 'success')
+          showNotification(`Table "${tableName}" created successfully! You can now add custom columns.`, 'success')
         } catch (error) {
           console.error('Error creating table:', error)
           if (error.response && error.response.status === 409) {
@@ -196,22 +219,37 @@ Are you sure you want to continue?`,
   }
 
   const deleteAllUsers = (showDeleteConfirm) => {
+    const userCount = tableData.value[currentTable.value]?.length || 0
+    if (userCount === 0) {
+      showNotification('No users to delete', 'info')
+      return
+    }
+
+    const confirmMessage = serverConnected.value 
+      ? `Delete all ${userCount} users from table "${currentTable.value}"? This action cannot be undone.`
+      : `Delete all ${userCount} users from table "${currentTable.value}" (local data only)? Server changes will not be saved.`
+
     showDeleteConfirm(
-      `Delete all users from table "${currentTable.value}"? This action cannot be undone.`,
+      confirmMessage,
       async () => {
         try {
           loading.value = true
           if (serverConnected.value) {
             // Delete from database
             await userAPI.deleteAllUsers(currentTable.value)
+            showNotification(`All users deleted from table "${currentTable.value}"!`, 'success')
+          } else {
+            // Local deletion only
+            showNotification(`All users deleted from table "${currentTable.value}" (local only)!`, 'warning')
           }
           
-          // Clear frontend data
+          // Clear frontend data in both cases
           tableData.value[currentTable.value] = []
-          showNotification(`All users deleted from table "${currentTable.value}"!`, 'success')
         } catch (error) {
           console.error('Error deleting all users:', error)
           showNotification('Failed to delete all users from database', 'error')
+          // Still clear local data even if server deletion failed
+          tableData.value[currentTable.value] = []
         } finally {
           loading.value = false
         }
@@ -240,25 +278,38 @@ Are you sure you want to continue?`,
           availableTables.value = ['users']
         }
         
+        // Fetch columns from server first
+        await fetchAndSetColumns(currentTable.value)
+        
         // Fetch user data for current table
         const userData = await userAPI.getAllUsers(currentTable.value)
         tableData.value[currentTable.value] = userData || []
         
-        // Auto-detect columns from fetched data if not already set
-        if (userData && userData.length > 0 && (!tableColumns.value[currentTable.value] || tableColumns.value[currentTable.value].length === 0)) {
+        // Refine column types based on actual data if we have users
+        if (userData && userData.length > 0 && tableColumns.value[currentTable.value]) {
           const sampleUser = userData[0]
-          const detectedColumns = Object.keys(sampleUser).map(key => ({
-            key,
-            label: key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' '),
-            type: detectColumnType(key, sampleUser[key]),
-            required: key === 'id' || key === 'name' || key === 'email',
-            editable: key !== 'id' && key !== 'created_at' && key !== 'updated_at'
+          tableColumns.value[currentTable.value] = tableColumns.value[currentTable.value].map(col => ({
+            ...col,
+            type: detectColumnType(col.key, sampleUser[col.key])
           }))
-          tableColumns.value[currentTable.value] = detectedColumns
         }
       } else {
-        console.warn('Server not available, no data to display')
+        console.warn('Server not available, using local demo mode')
+        // Initialize with default data and columns when server is not available
+        availableTables.value = ['users']
         tableData.value[currentTable.value] = []
+        
+        // Ensure default columns are set for the current table
+        if (!tableColumns.value[currentTable.value] || tableColumns.value[currentTable.value].length === 0) {
+          if (currentTable.value === 'users') {
+            tableColumns.value[currentTable.value] = [...defaultColumns]
+          } else {
+            // For non-users tables, start with minimal columns
+            tableColumns.value[currentTable.value] = [
+              { key: 'id', label: 'ID', type: 'number', required: true, editable: false }
+            ]
+          }
+        }
       }
     } catch (error) {
       console.error('Error fetching users:', error)
@@ -284,6 +335,7 @@ Are you sure you want to continue?`,
     createNewTable,
     dropTable,
     deleteAllUsers,
-    fetchUsers
+    fetchUsers,
+    fetchAndSetColumns
   }
 }

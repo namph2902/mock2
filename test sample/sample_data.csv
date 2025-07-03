@@ -1,7 +1,0 @@
-name,email,phone,company,position,age,website
-John Doe,john.doe@example.com,555-0101,Tech Corp,Developer,28,https://techcorp.com
-Jane Smith,jane.smith@company.com,555-0102,Design Inc,Designer,32,https://designinc.com
-Bob Johnson,bob.johnson@startup.io,555-0103,Startup IO,Manager,35,https://startup.io
-Alice Brown,alice.brown@email.com,555-0104,Marketing Ltd,Marketer,29,https://marketing.com
-Charlie Wilson,charlie.wilson@invalid-email,555-0105,Sales Corp,Sales Rep,31,https://salescorp.com
-Diana Davis,diana.davis@tech.org,555-0106,Tech Org,Engineer,27,https://techorg.org

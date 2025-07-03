@@ -1,16 +1,13 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, provide } from 'vue'
 import { useNotifications } from './composables/useNotifications.js'
 import { useModals } from './composables/useModals.js'
 import { useValidation } from './composables/useValidation.js'
 import { useTableManager } from './composables/useTableManager.js'
 import { useUserManager } from './composables/useUserManager.js'
-import { useCsvImporter } from './composables/useCsvImporter.js'
-
 // Import components
 import ConfirmModal from './components/ConfirmModal.vue'
 import AddColumnModal from './components/AddColumnModal.vue'
-import CsvImportModal from './components/CsvImportModal.vue'
 import EditUserModal from './components/EditUserModal.vue'
 import NotificationToast from './components/NotificationToast.vue'
 
@@ -18,7 +15,6 @@ import NotificationToast from './components/NotificationToast.vue'
 const { notifications, showNotification, removeNotification } = useNotifications()
 const { 
   showColumnModal, 
-  showCsvModal, 
   showDeleteConfirmModal, 
   showEditModal, 
   deleteConfirmAction,
@@ -33,14 +29,9 @@ const { emailRegex } = useValidation()
 
 const tableManager = useTableManager()
 const userManager = useUserManager(tableManager)
-const csvImporter = useCsvImporter(tableManager)
-
-// Template ref for the CSV file input
-const csvFile = ref(null)
 
 // Computed property for email validation status
 const emailValidationStatus = computed(() => {
-  // Find any email field in the current table
   const emailColumn = tableManager.columns.value.find(col => 
     col.key.toLowerCase().includes('email') || col.type === 'email'
   )
@@ -76,8 +67,6 @@ const handleKeydown = (event) => {
       handleCloseEditModal()
     } else if (showColumnModal.value) {
       showColumnModal.value = false
-    } else if (showCsvModal.value) {
-      showCsvModal.value = false
     } else if (showDeleteConfirmModal.value) {
       showDeleteConfirmModal.value = false
     }
@@ -117,8 +106,8 @@ const handleUpdateField = ({ field, value }) => {
   console.log('Current formData after update:', userManager.formData.value)
 }
 
-const handleAddColumn = () => {
-  const success = userManager.addColumn()
+const handleAddColumn = async () => {
+  const success = await userManager.addColumn()
   if (success) {
     showColumnModal.value = false
     setTimeout(checkScrollable, 100)
@@ -128,18 +117,6 @@ const handleAddColumn = () => {
 const handleEditUser = (user) => {
   userManager.editUser(user)
   showEditModal.value = true
-}
-
-const handleCsvImport = () => {
-  csvImporter.importFromCsv(showDeleteConfirm)
-  showCsvModal.value = false
-}
-
-const handleCsvUpload = (event) => {
-  csvImporter.handleCsvUploadAndPreview(event)
-  if (csvImporter.csvHeaders.value.length > 0) {
-    showCsvModal.value = true
-  }
 }
 
 onMounted(() => {
@@ -202,7 +179,7 @@ onUnmounted(() => {
     <nav class="navbar">
       <div class="container">
         <div class="navbar-content">
-          <div class="navbar-brand">Vue User Manager</div>
+          <div class="navbar-brand">Vue Table Manager</div>
           <div class="navbar-info">
             <!-- Table Selector -->
             <div class="table-selector">
@@ -234,9 +211,9 @@ onUnmounted(() => {
     <section class="user-management">
       <div class="container">
         <div class="text-center mb-8">
-          <h1 class="text-3xl font-bold mb-4">User Management - {{ tableManager.currentTable.value }}</h1>
+          <h1 class="text-3xl font-bold mb-4">Table Management - {{ tableManager.currentTable.value }}</h1>
           <p class="text-secondary mb-4">
-            Add, edit, and manage users with dynamic columns and CSV import.
+            Add, edit, and manage tables with dynamic columns.
           </p>
           
           <!-- Customization Info for Non-Default Tables -->
@@ -248,7 +225,7 @@ onUnmounted(() => {
               <span class="text-blue-800 font-medium">Custom Table: Full Customization Available</span>
             </div>
             <p class="text-blue-700 text-sm">
-              You can freely customize this table: add/remove any columns (except ID), import CSV data with automatic column creation, and email validation will be applied to any email fields.
+              You can freely customize this table: add/remove any columns (except ID), and email validation will be applied to any email fields.
             </p>
           </div>
           
@@ -286,33 +263,18 @@ onUnmounted(() => {
         </div>
 
         <!-- Enhanced Management Buttons -->
-        <div v-if="tableManager.serverConnected.value" class="management-toolbar">
+        <div class="management-toolbar">
           <div class="toolbar-left">
             <button 
               @click="showColumnModal = true"
               class="btn btn-secondary btn-sm"
-              :disabled="!tableManager.serverConnected.value"
+              title="Add a new column to the current table"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
               Add Column
-            </button>
-            
-            <button 
-              @click="csvFile.click()"
-              class="btn btn-outline btn-sm" 
-              :disabled="!tableManager.serverConnected.value"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                <polyline points="14,2 14,8 20,8"></polyline>
-                <line x1="16" y1="13" x2="8" y2="13"></line>
-                <line x1="16" y1="17" x2="8" y2="17"></line>
-                <polyline points="10,9 9,9 8,9"></polyline>
-              </svg>
-              Import CSV
             </button>
           </div>
 
@@ -361,7 +323,8 @@ onUnmounted(() => {
             <button 
               @click="tableManager.deleteAllUsers(showDeleteConfirm)"
               class="btn btn-danger btn-sm"
-              :disabled="!tableManager.serverConnected.value || tableManager.users.value.length === 0"
+              :disabled="tableManager.users.value.length === 0"
+              :title="!tableManager.serverConnected.value ? 'Delete all users (local data only)' : 'Delete all users from database'"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3,6 5,6 21,6"/>
@@ -372,19 +335,10 @@ onUnmounted(() => {
               Delete All
             </button>
           </div>
-
-          <input 
-            type="file" 
-            accept=".csv" 
-            @change="handleCsvUpload"
-            class="hidden"
-            ref="csvFile"
-            :disabled="!tableManager.serverConnected.value"
-          >
         </div>
 
         <!-- User Form -->
-        <div v-if="tableManager.serverConnected.value" class="user-form">
+        <div class="user-form">
           <div class="form-header">
             <h3 class="text-xl font-semibold">
               {{ tableManager.currentTable.value === 'users' ? 'Add New User' : 'Add New Row' }}
@@ -398,7 +352,7 @@ onUnmounted(() => {
               class="form-field"
             >
               <label class="form-label">
-                {{ tableManager.currentTable.value === 'users' ? column.label : '' }}
+                {{ column.label }}
                 <span v-if="column.required" class="required-indicator">*</span>
               </label>
               
@@ -416,7 +370,6 @@ onUnmounted(() => {
                   ]"
                   :placeholder="tableManager.currentTable.value === 'users' ? `Enter ${column.label.toLowerCase()}` : ''"
                   :required="column.required"
-                  :disabled="!tableManager.serverConnected.value"
                 >
                 <div v-if="userManager.formData.value[column.key] && userManager.formData.value[column.key].trim() !== '' && !emailRegex.test(userManager.formData.value[column.key].trim())" class="form-error">
                   Please enter a valid email address (e.g., user@example.com)
@@ -434,7 +387,6 @@ onUnmounted(() => {
                 class="form-input" 
                 :placeholder="tableManager.currentTable.value === 'users' ? `Enter ${column.label.toLowerCase()}` : ''"
                 :required="column.required"
-                :disabled="!tableManager.serverConnected.value"
               >
             </div>
             
@@ -442,17 +394,19 @@ onUnmounted(() => {
               <button 
                 type="submit" 
                 class="btn btn-primary"
-                :disabled="tableManager.loading.value || !tableManager.serverConnected.value"
+                :disabled="tableManager.loading.value"
+                :title="!tableManager.serverConnected.value ? 'Add user (local data only)' : 'Add user to database'"
               >
                 <div v-if="tableManager.loading.value" class="loading"></div>
                 {{ tableManager.currentTable.value === 'users' ? 'Add User' : 'Add Row' }}
+                <span v-if="!tableManager.serverConnected.value" class="text-xs opacity-75">(Local)</span>
               </button>
             </div>
           </form>
         </div>
 
         <!-- Users Table -->
-        <div v-if="tableManager.serverConnected.value" class="user-table">
+        <div class="user-table">
           <div class="card-header">
             <h3 class="text-lg font-semibold">
               {{ tableManager.currentTable.value === 'users' ? `All Users in ${tableManager.currentTable.value}` : 'Data Table' }}
@@ -465,13 +419,12 @@ onUnmounted(() => {
                 <tr>
                   <th v-for="column in tableManager.columns.value" :key="column.key">
                     <div class="flex items-center justify-between">
-                      <span>{{ tableManager.currentTable.value === 'users' ? column.label : '' }}</span>
+                      <span>{{ column.label }}</span>
                       <button 
-                        v-if="tableManager.currentTable.value === 'users' ? !tableManager.defaultColumns.some(col => col.key === column.key) : column.key !== 'id'"
+                        v-if="(tableManager.currentTable.value === 'users' && !tableManager.defaultColumns.some(col => col.key === column.key)) || (tableManager.currentTable.value !== 'users' && column.key !== 'id')"
                         @click="userManager.deleteColumn(column.key, showDeleteConfirm)"
                         class="ml-2 text-red-500 hover:text-red-700"
                         title="Remove column"
-                        :disabled="!tableManager.serverConnected.value"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -491,14 +444,14 @@ onUnmounted(() => {
                   </td>
                 </tr>
                 
-                <tr v-else-if="!tableManager.serverConnected.value">
+                <tr v-else-if="!tableManager.serverConnected.value && tableManager.users.value.length === 0">
                   <td :colspan="tableManager.columns.value.length + 1" class="text-center py-8">
                     <div class="text-muted">
                       <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6-4h6m2 5.291A7.962 7.962 0 0112 15c-2.34 0-4.5-.762-6.063-2.045l-.895.045L3.47 15.47c-.177.177-.47.177-.647 0L.354 12.993c-.178-.177-.178-.47 0-.647L2.823 9.877l.895.045A7.962 7.962 0 0112 7.5c2.34 0 4.5.762 6.063 2.045l.895-.045 2.469 2.469c.177.177.177.47 0 .647l-2.469 2.477c-.177.177-.47.177-.647 0l-.895-.045z"></path>
                       </svg>
-                      <h3 class="text-lg font-medium text-gray-600 mb-2">Data Unavailable</h3>
-                      <p class="text-gray-500">Unable to connect to server. Please check your connection and try again.</p>
+                      <h3 class="text-lg font-medium text-gray-600 mb-2">Demo Mode</h3>
+                      <p class="text-gray-500">Server disconnected. Working with local data only. Add some users or columns to get started!</p>
                     </div>
                   </td>
                 </tr>
@@ -563,8 +516,7 @@ onUnmounted(() => {
                       <button 
                         @click="handleEditUser(user)"
                         class="btn btn-ghost text-blue-600 hover:text-blue-700"
-                        :disabled="!tableManager.serverConnected.value"
-                        title="Edit this user"
+                        :title="!tableManager.serverConnected.value ? 'Edit user (local data only)' : 'Edit this user'"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -576,7 +528,7 @@ onUnmounted(() => {
                       <button 
                         @click="userManager.deleteUser(user.id, showDeleteConfirm)"
                         class="btn btn-ghost text-red-600 hover:text-red-700"
-                        :disabled="!tableManager.serverConnected.value"
+                        :title="!tableManager.serverConnected.value ? 'Delete user (local data only)' : 'Delete this user'"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <polyline points="3,6 5,6 21,6"/>
@@ -608,17 +560,9 @@ onUnmounted(() => {
       :showColumnModal="showColumnModal"
       :currentTable="tableManager.currentTable.value"
       :newColumn="userManager.newColumn.value"
+      :serverConnected="tableManager.serverConnected.value"
       @close="showColumnModal = false"
       @add-column="handleAddColumn"
-    />
-
-    <CsvImportModal
-      :showCsvModal="showCsvModal"
-      :currentTable="tableManager.currentTable.value"
-      :csvHeaders="csvImporter.csvHeaders.value"
-      :csvPreview="csvImporter.csvPreview.value"
-      @close="showCsvModal = false"
-      @import-csv="handleCsvImport"
     />
 
     <EditUserModal

@@ -117,6 +117,42 @@ export const tableAPI = {
   }
 }
 
+// Column API functions
+export const columnAPI = {
+  // Add column to table
+  async addColumn(tableName, columnData) {
+    try {
+      const response = await api.post(`/columns?table=${tableName}`, columnData)
+      return response.data
+    } catch (error) {
+      console.error('Error adding column:', error)
+      throw error
+    }
+  },
+
+  // Remove column from table
+  async removeColumn(tableName, columnKey) {
+    try {
+      const response = await api.delete(`/columns?table=${tableName}&column=${columnKey}`)
+      return response.data
+    } catch (error) {
+      console.error('Error removing column:', error)
+      throw error
+    }
+  },
+
+  // Get columns for a table
+  async getColumns(tableName) {
+    try {
+      const response = await api.get(`/columns?table=${tableName}`)
+      return response.data
+    } catch (error) {
+      console.error('Error fetching columns:', error)
+      throw error
+    }
+  },
+}
+
 // Utility function to check if server is running
 export const checkServerHealth = async () => {
   try {

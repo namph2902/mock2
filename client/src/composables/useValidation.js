@@ -37,36 +37,10 @@ export function useValidation() {
     return errors
   }
 
-  const validateCsvRow = (row, headers, rowIndex) => {
-    const errors = []
-    
-    headers.forEach((header, headerIndex) => {
-      const value = row[headerIndex] || ''
-      
-      // Validate email fields during import
-      if ((header.toLowerCase().includes('email') || header.toLowerCase().includes('mail')) && value.trim()) {
-        if (!emailRegex.test(value.trim())) {
-          errors.push(`Row ${rowIndex + 2}: Invalid email format "${value}" in column "${header}"`)
-        }
-      }
-      
-      // Add more validation rules as needed
-      if (header.toLowerCase().includes('age') && value.trim()) {
-        const age = parseInt(value.trim())
-        if (isNaN(age) || age < 0 || age > 150) {
-          errors.push(`Row ${rowIndex + 2}: Invalid age "${value}" in column "${header}"`)
-        }
-      }
-    })
-    
-    return errors
-  }
-
   return {
     validationErrors,
     emailRegex,
     validateEmail,
-    validateFormData,
-    validateCsvRow
+    validateFormData
   }
 }
