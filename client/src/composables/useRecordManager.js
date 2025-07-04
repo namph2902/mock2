@@ -1,13 +1,13 @@
 import { ref, computed } from 'vue'
-import { userAPI, columnAPI } from '../services/api.js'
+import { recordAPI, columnAPI } from '../services/api.js'
 import { useNotifications } from './useNotifications.js'
 import { useValidation } from './useValidation.js'
 
-export function useUserManager(tableManager) {
+export function useRecordManager(tableManager) {
   const { showNotification } = useNotifications()
   const { validateFormData } = useValidation()
   
-  const editingUser = ref(null)
+  const editingRecord = ref(null)
   const formData = ref({})
 
   const newColumn = ref({
@@ -19,12 +19,12 @@ export function useUserManager(tableManager) {
   })
 
   const hasUnsavedChanges = computed(() => {
-    if (!editingUser.value) return false
+    if (!editingRecord.value) return false
     
     return tableManager.columns.value
       .filter(col => col.editable)
       .some(col => {
-        const originalValue = editingUser.value[col.key]?.toString() || ''
+        const originalValue = editingRecord.value[col.key]?.toString() || ''
         const currentValue = formData.value[col.key]?.toString() || ''
         return originalValue !== currentValue
       })
@@ -42,7 +42,7 @@ export function useUserManager(tableManager) {
       }
     })
     formData.value = newFormData
-    editingUser.value = null
+    editingRecord.value = null
   }
 
   const clearAddForm = () => {
@@ -59,7 +59,7 @@ export function useUserManager(tableManager) {
     formData.value = newFormData
   }
 
-  const createUser = async () => {
+  const createRecord = async () => {
     const validationErrors = validateFormData(formData.value, tableManager.columns.value)
     if (validationErrors.length > 0) {
       validationErrors.forEach(error => showNotification(error, 'error'))
@@ -68,10 +68,10 @@ export function useUserManager(tableManager) {
 
     tableManager.loading.value = true
     try {
-      const userData = {}
+      const recordData = {}
       tableManager.columns.value.forEach(col => {
         if (col.editable && formData.value[col.key] !== undefined) {
-          userData[col.key] = col.type === 'number' ? 
+          recordData[col.key] = col.type === 'number' ? 
             parseInt(formData.value[col.key]) || 0 : 
             formData.value[col.key]
         }
@@ -79,35 +79,35 @@ export function useUserManager(tableManager) {
       
       if (tableManager.serverConnected.value) {
         // Server-side creation
-        const newUser = await userAPI.createUser(userData, tableManager.currentTable.value)
-        tableManager.users.value.push(newUser)
-        showNotification(`User created successfully in table "${tableManager.currentTable.value}"!`, 'success')
+        const newRecord = await recordAPI.createRecord(recordData, tableManager.currentTable.value)
+        tableManager.records.value.push(newRecord)
+        showNotification(`Record created successfully in table "${tableManager.currentTable.value}"!`, 'success')
       } else {
         // Local-only creation
-        const newUser = {
+        const newRecord = {
           id: Date.now() + Math.random(), // Generate temporary ID
-          ...userData
+          ...recordData
         }
-        tableManager.users.value.push(newUser)
-        showNotification(`User created locally in table "${tableManager.currentTable.value}" (server disconnected)!`, 'warning')
+        tableManager.records.value.push(newRecord)
+        showNotification(`Record created locally in table "${tableManager.currentTable.value}" (server disconnected)!`, 'warning')
       }
       
       clearAddForm()
     } catch (error) {
-      console.error('Error creating user:', error)
+      console.error('Error creating record:', error)
       if (error.response && error.response.status === 500 && error.response.data?.includes('validation failed')) {
         showNotification(`Server validation error: ${error.response.data}`, 'error')
       } else {
-        showNotification('Error creating user. Please try again.', 'error')
+        showNotification('Error creating record. Please try again.', 'error')
       }
     } finally {
       tableManager.loading.value = false
     }
   }
 
-  const updateUser = async () => {
-    if (!editingUser.value) {
-      showNotification('No user selected for editing', 'error')
+  const updateRecord = async () => {
+    if (!editingRecord.value) {
+      showNotification('No record selected for editing', 'error')
       return false
     }
     
@@ -120,47 +120,47 @@ export function useUserManager(tableManager) {
 
     tableManager.loading.value = true
     try {
-      // Build userData from all editable columns
-      const userData = {}
+      // Build recordData from all editable columns
+      const recordData = {}
       tableManager.columns.value.forEach(col => {
         if (col.editable && formData.value[col.key] !== undefined) {
-          userData[col.key] = col.type === 'number' ? 
+          recordData[col.key] = col.type === 'number' ? 
             parseInt(formData.value[col.key]) || 0 : 
             formData.value[col.key]
         }
       })
       
-      console.log('Sending user update with data:', userData)
-      console.log('User ID:', editingUser.value.id)
+      console.log('Sending record update with data:', recordData)
+      console.log('Record ID:', editingRecord.value.id)
       console.log('Table:', tableManager.currentTable.value)
       
       if (tableManager.serverConnected.value) {
         // Server-side update
-        await userAPI.updateUser(editingUser.value.id, userData, tableManager.currentTable.value)
-        showNotification('User updated successfully!', 'success')
+        await recordAPI.updateRecord(editingRecord.value.id, recordData, tableManager.currentTable.value)
+        showNotification('Record updated successfully!', 'success')
       } else {
         // Local-only update
-        showNotification('User updated locally (server disconnected)!', 'warning')
+        showNotification('Record updated locally (server disconnected)!', 'warning')
       }
       
       // Update local data in both cases
-      const index = tableManager.users.value.findIndex(u => u.id === editingUser.value.id)
+      const index = tableManager.records.value.findIndex(r => r.id === editingRecord.value.id)
       if (index !== -1) {
-        tableManager.users.value[index] = {
-          ...editingUser.value,
-          ...userData
+        tableManager.records.value[index] = {
+          ...editingRecord.value,
+          ...recordData
         }
       }
       
       resetForm()
       return true // Indicate success for modal closing
     } catch (error) {
-      console.error('Error updating user:', error)
+      console.error('Error updating record:', error)
       // Check if the error is from server-side validation
       if (error.response && error.response.status === 500 && error.response.data?.includes('validation failed')) {
         showNotification(`Server validation error: ${error.response.data}`, 'error')
       } else {
-        showNotification('Error updating user. Please try again.', 'error')
+        showNotification('Error updating record. Please try again.', 'error')
       }
       return false
     } finally {
@@ -168,11 +168,11 @@ export function useUserManager(tableManager) {
     }
   }
 
-  const deleteUser = async (id, showDeleteConfirm) => {
-    const user = tableManager.users.value.find(u => u.id === id)
+  const deleteRecord = async (id, showDeleteConfirm) => {
+    const record = tableManager.records.value.find(r => r.id === id)
     const confirmMessage = tableManager.serverConnected.value 
-      ? `Delete user "${user?.name || 'Unknown'}" from table "${tableManager.currentTable.value}"?`
-      : `Delete user "${user?.name || 'Unknown'}" from table "${tableManager.currentTable.value}" (local data only)?`
+      ? `Delete record "${record?.name || 'Unknown'}" from table "${tableManager.currentTable.value}"?`
+      : `Delete record "${record?.name || 'Unknown'}" from table "${tableManager.currentTable.value}" (local data only)?`
 
     showDeleteConfirm(
       confirmMessage,
@@ -180,17 +180,17 @@ export function useUserManager(tableManager) {
         tableManager.loading.value = true
         try {
           if (tableManager.serverConnected.value) {
-            await userAPI.deleteUser(id, tableManager.currentTable.value)
-            showNotification('User deleted successfully!', 'success')
+            await recordAPI.deleteRecord(id, tableManager.currentTable.value)
+            showNotification('Record deleted successfully!', 'success')
           } else {
-            showNotification('User deleted locally (server disconnected)!', 'warning')
+            showNotification('Record deleted locally (server disconnected)!', 'warning')
           }
           
           // Remove from local data in both cases
-          tableManager.users.value = tableManager.users.value.filter(user => user.id !== id)
+          tableManager.records.value = tableManager.records.value.filter(record => record.id !== id)
         } catch (error) {
-          console.error('Error deleting user:', error)
-          showNotification('Error deleting user. Please try again.', 'error')
+          console.error('Error deleting record:', error)
+          showNotification('Error deleting record. Please try again.', 'error')
         } finally {
           tableManager.loading.value = false
         }
@@ -198,13 +198,13 @@ export function useUserManager(tableManager) {
     )
   }
 
-  const editUser = (user) => {
-    editingUser.value = user
+  const editRecord = (record) => {
+    editingRecord.value = record
     // Populate form with all editable column data
     const newFormData = {}
     tableManager.columns.value.forEach(col => {
       if (col.editable) {
-        newFormData[col.key] = user[col.key]?.toString() || ''
+        newFormData[col.key] = record[col.key]?.toString() || ''
       }
     })
     formData.value = newFormData
@@ -230,13 +230,13 @@ export function useUserManager(tableManager) {
 
       tableManager.columns.value.push(columnToAdd)
       
-      // Add default value to all existing users in current table
-      tableManager.users.value.forEach(user => {
-        if (!(newColumn.value.key in user)) {
+      // Add default value to all existing records in current table
+      tableManager.records.value.forEach(record => {
+        if (!(newColumn.value.key in record)) {
           const defaultValue = newColumn.value.type === 'number' ? 
             (newColumn.value.defaultValue || '0') : 
             (newColumn.value.defaultValue || '')
-          user[newColumn.value.key] = defaultValue
+          record[newColumn.value.key] = defaultValue
         }
       })
 
@@ -259,13 +259,13 @@ export function useUserManager(tableManager) {
       const actualColumnName = response.actualColumnName || newColumn.value.key
       // Fetch latest columns from server using shared function
       await tableManager.fetchAndSetColumns(tableManager.currentTable.value)
-      // Add default value to all existing users in current table
-      tableManager.users.value.forEach(user => {
-        if (!(actualColumnName in user)) {
+      // Add default value to all existing records in current table
+      tableManager.records.value.forEach(record => {
+        if (!(actualColumnName in record)) {
           const defaultValue = newColumn.value.type === 'number' ? 
             (newColumn.value.defaultValue || '0') : 
             (newColumn.value.defaultValue || '')
-          user[actualColumnName] = defaultValue
+          record[actualColumnName] = defaultValue
         }
       })
       // Add to form data
@@ -309,9 +309,9 @@ export function useUserManager(tableManager) {
           // Client-side only operation
           tableManager.columns.value = tableManager.columns.value.filter(col => col.key !== columnKey)
           
-          // Remove data from all users in current table
-          tableManager.users.value.forEach(user => {
-            delete user[columnKey]
+          // Remove data from all records in current table
+          tableManager.records.value.forEach(record => {
+            delete record[columnKey]
           })
 
           // Remove from form data
@@ -327,9 +327,9 @@ export function useUserManager(tableManager) {
           await columnAPI.removeColumn(tableManager.currentTable.value, columnKey)
           // Fetch latest columns from server using shared function
           await tableManager.fetchAndSetColumns(tableManager.currentTable.value)
-          // Remove data from all users in current table
-          tableManager.users.value.forEach(user => {
-            delete user[columnKey]
+          // Remove data from all records in current table
+          tableManager.records.value.forEach(record => {
+            delete record[columnKey]
           })
           // Remove from form data
           delete formData.value[columnKey]
@@ -359,16 +359,16 @@ export function useUserManager(tableManager) {
   }
 
   return {
-    editingUser,
+    editingRecord,
     formData,
     newColumn,
     hasUnsavedChanges,
     resetForm,
     clearAddForm,
-    createUser,
-    updateUser,
-    deleteUser,
-    editUser,
+    createRecord,
+    updateRecord,
+    deleteRecord,
+    editRecord,
     addColumn,
     deleteColumn,
     resetNewColumn

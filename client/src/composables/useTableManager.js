@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { userAPI, tableAPI, columnAPI, checkServerHealth } from '../services/api.js'
+import { recordAPI, tableAPI, columnAPI, checkServerHealth } from '../services/api.js'
 import { useNotifications } from './useNotifications.js'
 import { useValidation } from './useValidation.js'
 
@@ -30,7 +30,7 @@ export function useTableManager() {
   })
 
   // Computed properties for current table
-  const users = computed({
+  const records = computed({
     get: () => tableData.value[currentTable.value] || [],
     set: (value) => {
       tableData.value[currentTable.value] = value
@@ -218,7 +218,7 @@ Are you sure you want to continue?`,
     )
   }
 
-  const deleteAllUsers = (showDeleteConfirm) => {
+  const deleteAllRecords = (showDeleteConfirm) => {
     const userCount = tableData.value[currentTable.value]?.length || 0
     if (userCount === 0) {
       showNotification('No users to delete', 'info')
@@ -236,7 +236,7 @@ Are you sure you want to continue?`,
           loading.value = true
           if (serverConnected.value) {
             // Delete from database
-            await userAPI.deleteAllUsers(currentTable.value)
+            await recordAPI.deleteAllRecords(currentTable.value)
             showNotification(`All users deleted from table "${currentTable.value}"!`, 'success')
           } else {
             // Local deletion only
@@ -257,7 +257,7 @@ Are you sure you want to continue?`,
     )
   }
 
-  const fetchUsers = async () => {
+  const fetchRecords = async () => {
     loading.value = true
     try {
       serverConnected.value = await checkServerHealth()
@@ -282,7 +282,7 @@ Are you sure you want to continue?`,
         await fetchAndSetColumns(currentTable.value)
         
         // Fetch user data for current table
-        const userData = await userAPI.getAllUsers(currentTable.value)
+        const userData = await recordAPI.getAllRecords(currentTable.value)
         tableData.value[currentTable.value] = userData || []
         
         // Refine column types based on actual data if we have users
@@ -328,14 +328,14 @@ Are you sure you want to continue?`,
     defaultColumns,
     tableData,
     tableColumns,
-    users,
+    records,
     columns,
     deletableTables,
     switchTable,
     createNewTable,
     dropTable,
-    deleteAllUsers,
-    fetchUsers,
+    deleteAllRecords,
+    fetchRecords,
     fetchAndSetColumns
   }
 }

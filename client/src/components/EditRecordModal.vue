@@ -1,13 +1,13 @@
 <template>
-  <!-- Edit User Modal -->
+  <!-- Edit Record Modal -->
   <div v-if="showEditModal" class="modal-overlay" @click="handleModalClick">
     <div class="modal-content edit-modal" @click.stop>
       <div class="modal-header">
         <div class="modal-title-section">
-          <h3 class="text-lg font-semibold">Edit User</h3>
-          <div v-if="editingUser" class="user-info">
-            <span class="user-id-badge">ID: {{ editingUser.id }}</span>
-            <span class="user-name">{{ editingUser.name || 'Unnamed User' }}</span>
+          <h3 class="text-lg font-semibold">Edit Record</h3>
+          <div v-if="editingRecord" class="record-info">
+            <span class="record-id-badge">ID: {{ editingRecord.id }}</span>
+            <span class="record-name">{{ editingRecord.name || 'Unnamed Record' }}</span>
           </div>
         </div>
         <button @click="handleClose" class="modal-close">
@@ -105,7 +105,7 @@ import { ref, watch } from 'vue'
 
 const props = defineProps({
   showEditModal: Boolean,
-  editingUser: Object,
+  editingRecord: Object,
   validationErrors: Array,
   columns: Array,
   formData: Object,
@@ -115,7 +115,7 @@ const props = defineProps({
   hasUnsavedChanges: Boolean
 })
 
-const emit = defineEmits(['close', 'update-user', 'update-field'])
+const emit = defineEmits(['close', 'update-record', 'update-field'])
 
 // Simple function to handle field updates
 const updateField = (field, value) => {
@@ -127,7 +127,7 @@ const handleClose = () => {
 }
 
 const handleSubmit = () => {
-  emit('update-user')
+  emit('update-record')
 }
 
 const handleModalClick = () => {
@@ -185,14 +185,14 @@ const handleModalClick = () => {
   gap: var(--space-xs);
 }
 
-.user-info {
+.record-info {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
   margin-top: var(--space-xs);
 }
 
-.user-id-badge {
+.record-id-badge {
   background: var(--primary-100);
   color: var(--primary-700);
   padding: var(--space-xs) var(--space-sm);
@@ -201,7 +201,7 @@ const handleModalClick = () => {
   font-weight: 600;
 }
 
-.user-name {
+.record-name {
   color: var(--text-secondary);
   font-size: var(--text-sm);
   font-weight: 500;

@@ -33,7 +33,7 @@ export function useModals() {
     if (hasUnsavedChanges) {
       const confirmClose = confirm('You have unsaved changes. Are you sure you want to close without saving?')
       if (!confirmClose) {
-        return false // Don't close if user cancels
+        return false 
       }
     }
     

@@ -1,4 +1,5 @@
 import axios from 'axios'
+import Papa from 'papaparse'
 
 const api = axios.create({
   baseURL: 'http://localhost:8080', 
@@ -8,74 +9,72 @@ const api = axios.create({
   }
 })
 
-// User API functions
-export const userAPI = {
-  // Get all users from a specific table
-  async getAllUsers(tableName = 'users') {
+// Record API functions
+export const recordAPI = {
+  async getAllRecords(tableName) {
     try {
-      const response = await api.get(`/users?table=${tableName}`)
+      const response = await api.get(`/records?table=${tableName}`)
       return response.data
     } catch (error) {
-      console.error('Error fetching users:', error)
+      console.error('Error fetching records:', error)
       throw error
     }
   },
 
-  // Create new user in a specific table
-  async createUser(userData, tableName = 'users') {
+  // Create new record in a specific table
+  async createRecord(recordData, tableName) {
     try {
-      const response = await api.post(`/users?table=${tableName}`, userData)
+      const response = await api.post(`/records?table=${tableName}`, recordData)
       return response.data
     } catch (error) {
-      console.error('Error creating user:', error)
+      console.error('Error creating record:', error)
       throw error
     }
   },
 
-  // Update user in a specific table
-  async updateUser(id, userData, tableName = 'users') {
+  // Update record in a specific table
+  async updateRecord(id, recordData, tableName) {
     try {
-      const response = await api.put(`/users/${id}?table=${tableName}`, userData)
-      // Server returns 204 No Content on successful update, so return success indicator
+      const response = await api.put(`/records/${id}?table=${tableName}`, recordData)
       return response.status === 204 || response.status === 200
     } catch (error) {
-      console.error('Error updating user:', error)
+      console.error('Error updating record:', error)
       throw error
     }
   },
 
-  // Delete user from a specific table
-  async deleteUser(id, tableName = 'users') {
+  // Delete record from a specific table
+  async deleteRecord(id, tableName) {
     try {
-      await api.delete(`/users/${id}?table=${tableName}`)
+      await api.delete(`/records/${id}?table=${tableName}`)
       return true
     } catch (error) {
-      console.error('Error deleting user:', error)
+      console.error('Error deleting record:', error)
       throw error
     }
   },
 
-  // Delete all users from a specific table
-  async deleteAllUsers(tableName = 'users') {
+  // Delete all records from a specific table
+  async deleteAllRecords(tableName) {
     try {
-      await api.delete(`/users?table=${tableName}&bulk=true`)
+      await api.delete(`/records?table=${tableName}&bulk=true`)
       return true
     } catch (error) {
-      console.error('Error deleting all users:', error)
+      console.error('Error deleting all records:', error)
       throw error
     }
   },
 
-  // Bulk create users in a specific table
-  async bulkCreateUsers(usersData, tableName = 'users') {
+  // Bulk create records in a specific table
+  async bulkCreateRecords(recordsData, tableName) {
     try {
-      const response = await api.post('/users/bulk', {
-        users: usersData,
+      const response = await api.post('/records/bulk', {
+        users: recordsData,
         table: tableName
       })
       return response.data
     } catch (error) {
-      console.error('Error bulk creating users:', error)
+      console.error('Error bulk creating records:', error)
       throw error
     }
   }
@@ -83,7 +82,6 @@ export const userAPI = {
 
 // Table API functions
 export const tableAPI = {
-  // Get all tables
   async getAllTables() {
     try {
       const response = await api.get('/tables')
@@ -119,7 +117,6 @@ export const tableAPI = {
 
 // Column API functions
 export const columnAPI = {
-  // Add column to table
   async addColumn(tableName, columnData) {
     try {
       const response = await api.post(`/columns?table=${tableName}`, columnData)
@@ -153,20 +150,14 @@ export const columnAPI = {
   },
 }
 
-// Utility function to check if server is running
+// Health check function
 export const checkServerHealth = async () => {
   try {
-    await api.get('/users')
-    return true
+    const response = await api.get('/tables')
+    return response.status === 200
   } catch (error) {
+    console.warn('Server health check failed:', error.message)
     return false
-  }
-}
-
-// Health check API
-export const healthAPI = {
-  async checkServer() {
-    return checkServerHealth()
   }
 }
 

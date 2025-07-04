@@ -13,7 +13,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-type User map[string]interface{}
+type Record map[string]interface{}
 
 var db *sql.DB
 
@@ -51,8 +51,8 @@ func main() {
 	initializeDefaultTables()
 
 	// Register handlers
-	http.HandleFunc("/users/", withCORS(userHandler))
-	http.HandleFunc("/users", withCORS(userHandler))
+	http.HandleFunc("/records/", withCORS(recordHandler))
+	http.HandleFunc("/records", withCORS(recordHandler))
 	http.HandleFunc("/tables/", withCORS(tableHandler))
 	http.HandleFunc("/tables", withCORS(tableHandler))
 	http.HandleFunc("/columns/", withCORS(columnHandler))
@@ -62,8 +62,8 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-// Enhanced user handler to work with any table
-func userHandler(w http.ResponseWriter, r *http.Request) {
+// Enhanced record handler to work with any table
+func recordHandler(w http.ResponseWriter, r *http.Request) {
 	// Extract table name from query parameter, default to "users"
 	tableName := r.URL.Query().Get("table")
 	if tableName == "" {
@@ -89,24 +89,24 @@ func userHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		if idStr == "" || idStr == "/" {
-			// List all users from specified table
-			users, err := getTableData(tableName)
+			// List all records from specified table
+			records, err := getTableData(tableName)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			json.NewEncoder(w).Encode(users)
+			json.NewEncoder(w).Encode(records)
 			return
 		}
 
-		// Get user by id from specified table
+		// Get record by id from specified table
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
-			http.Error(w, "Invalid user ID", http.StatusBadRequest)
+			http.Error(w, "Invalid record ID", http.StatusBadRequest)
 			return
 		}
 
-		user, err := getUserFromTable(tableName, id)
+		record, err := getRecordFromTable(tableName, id)
 		if err == sql.ErrNoRows {
 			http.NotFound(w, r)
 			return
@@ -115,48 +115,48 @@ func userHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		json.NewEncoder(w).Encode(user)
+		json.NewEncoder(w).Encode(record)
 
 	case http.MethodPost:
 		if idStr != "" && idStr != "/" {
-			http.Error(w, "POST not allowed on specific user", http.StatusMethodNotAllowed)
+			http.Error(w, "POST not allowed on specific record", http.StatusMethodNotAllowed)
 			return
 		}
 
-		var userData User
-		if err := json.NewDecoder(r.Body).Decode(&userData); err != nil {
+		var recordData Record
+		if err := json.NewDecoder(r.Body).Decode(&recordData); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		newUser, err := createUserInTable(tableName, userData)
+		newRecord, err := createRecordInTable(tableName, recordData)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(newUser)
+		json.NewEncoder(w).Encode(newRecord)
 
 	case http.MethodPut:
 		if idStr == "" || idStr == "/" {
-			http.Error(w, "PUT requires user ID", http.StatusBadRequest)
+			http.Error(w, "PUT requires record ID", http.StatusBadRequest)
 			return
 		}
 
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
-			http.Error(w, "Invalid user ID", http.StatusBadRequest)
+			http.Error(w, "Invalid record ID", http.StatusBadRequest)
 			return
 		}
 
-		var userData User
-		if err := json.NewDecoder(r.Body).Decode(&userData); err != nil {
+		var recordData Record
+		if err := json.NewDecoder(r.Body).Decode(&recordData); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		err = updateUserInTable(tableName, id, userData)
+		err = updateRecordInTable(tableName, id, recordData)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -165,16 +165,16 @@ func userHandler(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodDelete:
 		if idStr == "" || idStr == "/" {
-			http.Error(w, "DELETE requires user ID", http.StatusBadRequest)
+			http.Error(w, "DELETE requires record ID", http.StatusBadRequest)
 			return
 		}
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
-			http.Error(w, "Invalid user ID", http.StatusBadRequest)
+			http.Error(w, "Invalid record ID", http.StatusBadRequest)
 			return
 		}
 
-		err = deleteUserFromTable(tableName, id)
+		err = deleteRecordFromTable(tableName, id)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -329,11 +329,11 @@ func getAllTables() ([]string, error) {
 }
 
 // Validation functions using regex patterns
-func validateUserData(userData User) []string {
+func validateRecordData(recordData Record) []string {
 	var errors []string
 
 	// Validate email
-	if email, exists := userData["email"]; exists {
+	if email, exists := recordData["email"]; exists {
 		if emailStr, ok := email.(string); ok {
 			if !emailPattern.MatchString(emailStr) {
 				errors = append(errors, "Invalid email format")
@@ -540,7 +540,7 @@ func addColumnToTableWithReturn(tableName, columnName string, sampleValue interf
 	return safeColumnName, nil
 }
 
-func getTableData(tableName string) ([]User, error) {
+func getTableData(tableName string) ([]Record, error) {
 	columns, err := getTableColumns(tableName)
 	if err != nil {
 		return nil, err
@@ -553,7 +553,7 @@ func getTableData(tableName string) ([]User, error) {
 	}
 	defer rows.Close()
 
-	var users []User
+	var records []Record
 	for rows.Next() {
 		values := make([]interface{}, len(columns))
 		valuePtrs := make([]interface{}, len(columns))
@@ -565,18 +565,18 @@ func getTableData(tableName string) ([]User, error) {
 			return nil, err
 		}
 
-		user := make(User)
+		record := make(Record)
 		for i, col := range columns {
 			if values[i] != nil {
-				user[col] = values[i]
+				record[col] = values[i]
 			}
 		}
-		users = append(users, user)
+		records = append(records, record)
 	}
-	return users, nil
+	return records, nil
 }
 
-func getUserFromTable(tableName string, id int) (User, error) {
+func getRecordFromTable(tableName string, id int) (Record, error) {
 	columns, err := getTableColumns(tableName)
 	if err != nil {
 		return nil, err
@@ -594,18 +594,17 @@ func getUserFromTable(tableName string, id int) (User, error) {
 		return nil, err
 	}
 
-	user := make(User)
+	record := make(Record)
 	for i, col := range columns {
 		if values[i] != nil {
-			user[col] = values[i]
+			record[col] = values[i]
 		}
 	}
-	return user, nil
+	return record, nil
 }
 
-func createUserInTable(tableName string, userData User) (User, error) {
-	// Validate user data using regex patterns
-	if errors := validateUserData(userData); len(errors) > 0 {
+func createRecordInTable(tableName string, recordData Record) (Record, error) {
+	if errors := validateRecordData(recordData); len(errors) > 0 {
 		return nil, fmt.Errorf("validation failed: %s", strings.Join(errors, "; "))
 	}
 
@@ -614,13 +613,11 @@ func createUserInTable(tableName string, userData User) (User, error) {
 		return nil, err
 	}
 
-	// Check for new columns in userData and add them to the table
-	for col := range userData {
+	for col := range recordData {
 		if col == "id" {
-			continue // Skip id column
+			continue
 		}
 
-		// Check if column exists in table
 		columnExists := false
 		for _, existingCol := range columns {
 			if existingCol == col {
@@ -629,9 +626,8 @@ func createUserInTable(tableName string, userData User) (User, error) {
 			}
 		}
 
-		// Add column if it doesn't exist
 		if !columnExists {
-			err = addColumnToTable(tableName, col, userData[col])
+			err = addColumnToTable(tableName, col, recordData[col])
 			if err != nil {
 				log.Printf("Warning: Failed to add column %s to table %s: %v", col, tableName, err)
 				continue
@@ -651,7 +647,7 @@ func createUserInTable(tableName string, userData User) (User, error) {
 		if col == "id" {
 			continue
 		}
-		if value, exists := userData[col]; exists {
+		if value, exists := recordData[col]; exists {
 			insertColumns = append(insertColumns, col)
 			values = append(values, value)
 			placeholders = append(placeholders, fmt.Sprintf("$%d", placeholderIndex))
@@ -676,26 +672,25 @@ func createUserInTable(tableName string, userData User) (User, error) {
 		return nil, err
 	}
 
-	userData["id"] = newID
-	return userData, nil
+	recordData["id"] = newID
+	return recordData, nil
 }
 
-func updateUserInTable(tableName string, id int, userData User) error {
+func updateRecordInTable(tableName string, id int, recordData Record) error {
 	columns, err := getTableColumns(tableName)
 	if err != nil {
 		return err
 	}
 
-	// Build SET clause dynamically
 	var setClauses []string
 	var values []interface{}
 	placeholderIndex := 1
 
 	for _, col := range columns {
 		if col == "id" {
-			continue // Skip id column
+			continue
 		}
-		if value, exists := userData[col]; exists {
+		if value, exists := recordData[col]; exists {
 			setClauses = append(setClauses, fmt.Sprintf("%s=$%d", col, placeholderIndex))
 			values = append(values, value)
 			placeholderIndex++
@@ -706,7 +701,6 @@ func updateUserInTable(tableName string, id int, userData User) error {
 		return fmt.Errorf("no valid fields to update")
 	}
 
-	// Add id as the last parameter
 	values = append(values, id)
 	query := fmt.Sprintf(
 		"UPDATE %s SET %s WHERE id=$%d",
@@ -719,7 +713,7 @@ func updateUserInTable(tableName string, id int, userData User) error {
 	return err
 }
 
-func deleteUserFromTable(tableName string, id int) error {
+func deleteRecordFromTable(tableName string, id int) error {
 	query := fmt.Sprintf("DELETE FROM %s WHERE id=$1", tableName)
 	_, err := db.Exec(query, id)
 	return err
@@ -744,7 +738,6 @@ func initializeDefaultTables() {
 	}
 }
 
-// Column handler for adding/removing columns from tables
 func columnHandler(w http.ResponseWriter, r *http.Request) {
 	tableName := r.URL.Query().Get("table")
 	if tableName == "" {
@@ -765,7 +758,6 @@ func columnHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPost:
-		// Add column to table
 		var columnData struct {
 			Key          string `json:"key"`
 			Label        string `json:"label"`
@@ -784,7 +776,6 @@ func columnHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Check if column already exists
 		if columnExists(tableName, columnData.Key) {
 			http.Error(w, "Column already exists", http.StatusConflict)
 			return
@@ -804,26 +795,22 @@ func columnHandler(w http.ResponseWriter, r *http.Request) {
 		})
 
 	case http.MethodDelete:
-		// Remove column from table
 		columnKey := r.URL.Query().Get("column")
 		if columnKey == "" {
 			http.Error(w, "Column key is required", http.StatusBadRequest)
 			return
 		}
 
-		// Prevent deletion of ID column
 		if columnKey == "id" {
 			http.Error(w, "Cannot delete ID column", http.StatusBadRequest)
 			return
 		}
 
-		// Check if column exists
 		if !columnExists(tableName, columnKey) {
 			http.Error(w, "Column not found", http.StatusNotFound)
 			return
 		}
 
-		// Drop column from table
 		query := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", tableName, columnKey)
 		_, err = db.Exec(query)
 		if err != nil {

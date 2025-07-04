@@ -4,11 +4,11 @@ import { useNotifications } from './composables/useNotifications.js'
 import { useModals } from './composables/useModals.js'
 import { useValidation } from './composables/useValidation.js'
 import { useTableManager } from './composables/useTableManager.js'
-import { useUserManager } from './composables/useUserManager.js'
+import { useRecordManager } from './composables/useRecordManager.js'
 // Import components
 import ConfirmModal from './components/ConfirmModal.vue'
 import AddColumnModal from './components/AddColumnModal.vue'
-import EditUserModal from './components/EditUserModal.vue'
+import EditRecordModal from './components/EditRecordModal.vue'
 import NotificationToast from './components/NotificationToast.vue'
 
 // Setup composables
@@ -28,7 +28,7 @@ const {
 const { emailRegex } = useValidation()
 
 const tableManager = useTableManager()
-const userManager = useUserManager(tableManager)
+const recordManager = useRecordManager(tableManager)
 
 // Computed property for email validation status
 const emailValidationStatus = computed(() => {
@@ -36,10 +36,10 @@ const emailValidationStatus = computed(() => {
     col.key.toLowerCase().includes('email') || col.type === 'email'
   )
   
-  if (!emailColumn || !userManager.formData.value[emailColumn.key] || userManager.formData.value[emailColumn.key].trim() === '') {
+  if (!emailColumn || !recordManager.formData.value[emailColumn.key] || recordManager.formData.value[emailColumn.key].trim() === '') {
     return 'empty'
   }
-  return emailRegex.test(userManager.formData.value[emailColumn.key].trim()) ? 'valid' : 'invalid'
+  return emailRegex.test(recordManager.formData.value[emailColumn.key].trim()) ? 'valid' : 'invalid'
 })
 
 // Function to check if table scroll container is scrollable
@@ -74,23 +74,23 @@ const handleKeydown = (event) => {
 }
 
 const handleSubmit = () => {
-  if (userManager.editingUser.value) {
-    handleUpdateUser()
+  if (recordManager.editingRecord.value) {
+    handleUpdateRecord()
   } else {
-    userManager.createUser()
+    recordManager.createRecord()
   }
 }
 
 const handleCloseEditModal = () => {
-  const closed = closeEditModal(userManager.hasUnsavedChanges.value)
+  const closed = closeEditModal(recordManager.hasUnsavedChanges.value)
   if (closed) {
-    userManager.resetForm()
+    recordManager.resetForm()
   }
 }
 
-const handleUpdateUser = async () => {
-  console.log('About to update user with formData:', userManager.formData.value)
-  const success = await userManager.updateUser()
+const handleUpdateRecord = async () => {
+  console.log('About to update record with formData:', recordManager.formData.value)
+  const success = await recordManager.updateRecord()
   if (success) {
     console.log('Update successful, closing modal')
     showEditModal.value = false
@@ -100,29 +100,29 @@ const handleUpdateUser = async () => {
 }
 
 const handleUpdateField = ({ field, value }) => {
-  // Update the specific field in the userManager's formData
+  // Update the specific field in the recordManager's formData
   console.log(`Updating field "${field}" with value:`, value)
-  userManager.formData.value[field] = value
-  console.log('Current formData after update:', userManager.formData.value)
+  recordManager.formData.value[field] = value
+  console.log('Current formData after update:', recordManager.formData.value)
 }
 
 const handleAddColumn = async () => {
-  const success = await userManager.addColumn()
+  const success = await recordManager.addColumn()
   if (success) {
     showColumnModal.value = false
     setTimeout(checkScrollable, 100)
   }
 }
 
-const handleEditUser = (user) => {
-  userManager.editUser(user)
+const handleEditRecord = (record) => {
+  recordManager.editRecord(record)
   showEditModal.value = true
 }
 
 onMounted(() => {
   // Initialize form data for current table
-  userManager.clearAddForm()
-  tableManager.fetchUsers()
+  recordManager.clearAddForm()
+  tableManager.fetchRecords()
   
   // Add keyboard event listener for modal shortcuts
   document.addEventListener('keydown', handleKeydown)
@@ -231,7 +231,7 @@ onUnmounted(() => {
           
           <!-- Stats Info -->
           <div class="stats-info justify-center">
-            <span class="stat-badge">{{ tableManager.users.value.length }} Users</span>
+            <span class="stat-badge">{{ tableManager.records.value.length }} Records</span>
             <span class="stat-badge">{{ tableManager.columns.value.length }} Columns</span>
             <span class="stat-badge">{{ tableManager.availableTables.value.length }} Tables</span>
             <span 
@@ -252,7 +252,7 @@ onUnmounted(() => {
             </svg>
             <h3 class="text-xl font-semibold text-yellow-800 mb-2">Server Not Available</h3>
             <p class="text-yellow-700 mb-4">Unable to connect to the backend server. Please check your connection and try again.</p>
-            <button @click="tableManager.fetchUsers" class="btn btn-primary">
+            <button @click="tableManager.fetchRecords" class="btn btn-primary">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2">
                 <path d="M1 4v6h6"></path>
                 <path d="M3.51 15a9 9 0 102.13-9.36L1 10"></path>
@@ -321,10 +321,10 @@ onUnmounted(() => {
             </button>
             
             <button 
-              @click="tableManager.deleteAllUsers(showDeleteConfirm)"
+              @click="tableManager.deleteAllRecords(showDeleteConfirm)"
               class="btn btn-danger btn-sm"
-              :disabled="tableManager.users.value.length === 0"
-              :title="!tableManager.serverConnected.value ? 'Delete all users (local data only)' : 'Delete all users from database'"
+              :disabled="tableManager.records.value.length === 0"
+              :title="!tableManager.serverConnected.value ? 'Delete all records (local data only)' : 'Delete all records from database'"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3,6 5,6 21,6"/>
@@ -345,7 +345,7 @@ onUnmounted(() => {
             </h3>
           </div>
           
-          <form @submit.prevent="userManager.createUser" class="form-grid">
+          <form @submit.prevent="recordManager.createUser" class="form-grid">
             <div 
               v-for="column in tableManager.columns.value.filter(col => col.editable)" 
               :key="column.key"
@@ -359,22 +359,22 @@ onUnmounted(() => {
               <!-- Special handling for email field with validation -->
               <div v-if="column.key.toLowerCase().includes('email') || column.type === 'email'" class="email-input-wrapper">
                 <input 
-                  v-model="userManager.formData.value[column.key]"
+                  v-model="recordManager.formData.value[column.key]"
                   :type="column.type" 
                   :class="[
                     'form-input',
                     {
-                      'error': userManager.formData.value[column.key] && userManager.formData.value[column.key].trim() !== '' && !emailRegex.test(userManager.formData.value[column.key].trim()),
-                      'success': userManager.formData.value[column.key] && userManager.formData.value[column.key].trim() !== '' && emailRegex.test(userManager.formData.value[column.key].trim())
+                      'error': recordManager.formData.value[column.key] && recordManager.formData.value[column.key].trim() !== '' && !emailRegex.test(recordManager.formData.value[column.key].trim()),
+                      'success': recordManager.formData.value[column.key] && recordManager.formData.value[column.key].trim() !== '' && emailRegex.test(recordManager.formData.value[column.key].trim())
                     }
                   ]"
                   :placeholder="tableManager.currentTable.value === 'users' ? `Enter ${column.label.toLowerCase()}` : ''"
                   :required="column.required"
                 >
-                <div v-if="userManager.formData.value[column.key] && userManager.formData.value[column.key].trim() !== '' && !emailRegex.test(userManager.formData.value[column.key].trim())" class="form-error">
+                <div v-if="recordManager.formData.value[column.key] && recordManager.formData.value[column.key].trim() !== '' && !emailRegex.test(recordManager.formData.value[column.key].trim())" class="form-error">
                   Please enter a valid email address (e.g., user@example.com)
                 </div>
-                <div v-if="userManager.formData.value[column.key] && userManager.formData.value[column.key].trim() !== '' && emailRegex.test(userManager.formData.value[column.key].trim())" class="form-success">
+                <div v-if="recordManager.formData.value[column.key] && recordManager.formData.value[column.key].trim() !== '' && emailRegex.test(recordManager.formData.value[column.key].trim())" class="form-success">
                   ✓ Valid email format
                 </div>
               </div>
@@ -382,7 +382,7 @@ onUnmounted(() => {
               <!-- Regular input for non-email fields -->
               <input 
                 v-else
-                v-model="userManager.formData.value[column.key]"
+                v-model="recordManager.formData.value[column.key]"
                 :type="column.type" 
                 class="form-input" 
                 :placeholder="tableManager.currentTable.value === 'users' ? `Enter ${column.label.toLowerCase()}` : ''"
@@ -422,7 +422,7 @@ onUnmounted(() => {
                       <span>{{ column.label }}</span>
                       <button 
                         v-if="(tableManager.currentTable.value === 'users' && !tableManager.defaultColumns.some(col => col.key === column.key)) || (tableManager.currentTable.value !== 'users' && column.key !== 'id')"
-                        @click="userManager.deleteColumn(column.key, showDeleteConfirm)"
+                        @click="recordManager.deleteColumn(column.key, showDeleteConfirm)"
                         class="ml-2 text-red-500 hover:text-red-700"
                         title="Remove column"
                       >
@@ -437,86 +437,86 @@ onUnmounted(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="tableManager.loading.value && tableManager.users.value.length === 0">
+                <tr v-if="tableManager.loading.value && tableManager.records.value.length === 0">
                   <td :colspan="tableManager.columns.value.length + 1" class="text-center py-8">
                     <div class="loading mx-auto"></div>
-                    <p class="text-muted mt-2">Loading users...</p>
+                    <p class="text-muted mt-2">Loading records...</p>
                   </td>
                 </tr>
                 
-                <tr v-else-if="!tableManager.serverConnected.value && tableManager.users.value.length === 0">
+                <tr v-else-if="!tableManager.serverConnected.value && tableManager.records.value.length === 0">
                   <td :colspan="tableManager.columns.value.length + 1" class="text-center py-8">
                     <div class="text-muted">
                       <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6-4h6m2 5.291A7.962 7.962 0 0112 15c-2.34 0-4.5-.762-6.063-2.045l-.895.045L3.47 15.47c-.177.177-.47.177-.647 0L.354 12.993c-.178-.177-.178-.47 0-.647L2.823 9.877l.895.045A7.962 7.962 0 0112 7.5c2.34 0 4.5.762 6.063 2.045l.895-.045 2.469 2.469c.177.177.177.47 0 .647l-2.469 2.477c-.177.177-.47.177-.647 0l-.895-.045z"></path>
                       </svg>
                       <h3 class="text-lg font-medium text-gray-600 mb-2">Demo Mode</h3>
-                      <p class="text-gray-500">Server disconnected. Working with local data only. Add some users or columns to get started!</p>
+                      <p class="text-gray-500">Server disconnected. Working with local data only. Add some records or columns to get started!</p>
                     </div>
                   </td>
                 </tr>
                 
-                <tr v-else-if="tableManager.users.value.length === 0">
+                <tr v-else-if="tableManager.records.value.length === 0">
                   <td :colspan="tableManager.columns.value.length + 1" class="text-center py-8">
                     <p class="text-muted">
                       {{ tableManager.currentTable.value === 'users' 
-                          ? `No users found in ${tableManager.currentTable.value}. Add your first user above!`
+                          ? `No records found in ${tableManager.currentTable.value}. Add your first record above!`
                           : 'No data found. Add your first row above!'
                       }}
                     </p>
                   </td>
                 </tr>
                 
-                <tr v-else v-for="user in tableManager.users.value" :key="user.id">
+                <tr v-else v-for="record in tableManager.records.value" :key="record.id">
                   <td v-for="column in tableManager.columns.value" :key="column.key" class="font-medium">
                     <span 
                       :class="[
                         'user-data-cell',
                         `data-type-${column.type}`,
-                        { 'data-empty': !user[column.key] }
+                        { 'data-empty': !record[column.key] }
                       ]"
-                      :title="column.key === 'id' ? `User ID: ${user[column.key]}` : `${column.label}: ${user[column.key] || 'Not set'}`"
+                      :title="column.key === 'id' ? `Record ID: ${record[column.key]}` : `${column.label}: ${record[column.key] || 'Not set'}`"
                     >
                       <!-- Special formatting for different data types -->
-                      <template v-if="column.type === 'email' && user[column.key]">
+                      <template v-if="column.type === 'email' && record[column.key]">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline mr-1">
                           <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
                           <polyline points="22,6 12,13 2,6"></polyline>
                         </svg>
-                        {{ user[column.key] }}
+                        {{ record[column.key] }}
                       </template>
-                      <template v-else-if="column.type === 'tel' && user[column.key]">
+                      <template v-else-if="column.type === 'tel' && record[column.key]">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline mr-1">
                           <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
                         </svg>
-                        {{ user[column.key] }}
+                        {{ record[column.key] }}
                       </template>
-                      <template v-else-if="column.type === 'url' && user[column.key]">
+                      <template v-else-if="column.type === 'url' && record[column.key]">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline mr-1">
                           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.72"></path>
                           <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.72-1.72"></path>
                         </svg>
-                        <a :href="user[column.key]" target="_blank" class="text-blue-600 hover:text-blue-800">
-                          {{ user[column.key] }}
+                        <a :href="record[column.key]" target="_blank" class="text-blue-600 hover:text-blue-800">
+                          {{ record[column.key] }}
                         </a>
                       </template>
                       <template v-else-if="column.key === 'id'">
-                        <span class="id-badge">#{{ user[column.key] }}</span>
+                        <span class="id-badge">#{{ record[column.key] }}</span>
                       </template>
                       <template v-else-if="column.type === 'number'">
-                        <span class="number-value">{{ user[column.key] || '0' }}</span>
+                        <span class="number-value">{{ record[column.key] || '0' }}</span>
                       </template>
                       <template v-else>
-                        {{ user[column.key] || '-' }}
+                        {{ record[column.key] || '-' }}
                       </template>
                     </span>
                   </td>
                   <td>
                     <div class="flex gap-sm">
                       <button 
-                        @click="handleEditUser(user)"
+                        @click="handleEditRecord(record)"
                         class="btn btn-ghost text-blue-600 hover:text-blue-700"
-                        :title="!tableManager.serverConnected.value ? 'Edit user (local data only)' : 'Edit this user'"
+                        :title="!tableManager.serverConnected.value ? 'Edit record (local data only)' : 'Edit this record'"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -526,9 +526,9 @@ onUnmounted(() => {
                       </button>
                       
                       <button 
-                        @click="userManager.deleteUser(user.id, showDeleteConfirm)"
+                        @click="recordManager.deleteRecord(record.id, showDeleteConfirm)"
                         class="btn btn-ghost text-red-600 hover:text-red-700"
-                        :title="!tableManager.serverConnected.value ? 'Delete user (local data only)' : 'Delete this user'"
+                        :title="!tableManager.serverConnected.value ? 'Delete record (local data only)' : 'Delete this record'"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <polyline points="3,6 5,6 21,6"/>
@@ -559,24 +559,24 @@ onUnmounted(() => {
     <AddColumnModal
       :showColumnModal="showColumnModal"
       :currentTable="tableManager.currentTable.value"
-      :newColumn="userManager.newColumn.value"
+      :newColumn="recordManager.newColumn.value"
       :serverConnected="tableManager.serverConnected.value"
       @close="showColumnModal = false"
       @add-column="handleAddColumn"
     />
 
-    <EditUserModal
+    <EditRecordModal
       :showEditModal="showEditModal"
-      :editingUser="userManager.editingUser.value"
+      :editingRecord="recordManager.editingRecord.value"
       :validationErrors="[]"
       :columns="tableManager.columns.value"
-      :formData="userManager.formData.value"
+      :formData="recordManager.formData.value"
       :emailRegex="emailRegex"
       :serverConnected="tableManager.serverConnected.value"
       :loading="tableManager.loading.value"
-      :hasUnsavedChanges="userManager.hasUnsavedChanges.value"
+      :hasUnsavedChanges="recordManager.hasUnsavedChanges.value"
       @close="handleCloseEditModal"
-      @update-user="handleUpdateUser"
+      @update-record="handleUpdateRecord"
       @update-field="handleUpdateField"
     />
 
